@@ -74,10 +74,15 @@ fn init_creates_config_without_changing_default_check_behavior() {
     let init = run(dir.path(), &["init"]);
     assert_eq!(init.status.code(), Some(0), "{}", stderr(&init));
     assert!(stdout(&init).contains("deordinal.jsonc"));
+    let generated = fs::read_to_string(dir.path().join("deordinal.jsonc")).unwrap();
+    assert_eq!(generated, include_str!("../assets/default.deordinal.jsonc"));
+    let json: serde_json::Value = serde_json::from_str(&generated).unwrap();
     assert_eq!(
-        fs::read_to_string(dir.path().join("deordinal.jsonc")).unwrap(),
-        "{\n  \"useGitIgnoreFile\": true\n}\n"
+        json["$schema"],
+        "https://raw.githubusercontent.com/iharuya/deordinal/main/configuration_schema.json"
     );
+    assert_eq!(json["useGitIgnoreFile"], true);
+    assert!(json.get("includes").is_none());
     let after = run(dir.path(), &["check", "-v"]);
     assert_eq!(after.status.code(), before.status.code());
     assert_eq!(after.stdout, before.stdout);
@@ -89,7 +94,7 @@ fn init_creates_config_without_changing_default_check_behavior() {
     assert!(again.stdout.is_empty());
     assert_eq!(
         fs::read_to_string(dir.path().join("deordinal.jsonc")).unwrap(),
-        "{\n  \"useGitIgnoreFile\": true\n}\n"
+        generated
     );
 }
 

@@ -1,0 +1,4 @@
+{
+  "$schema": "https://raw.githubusercontent.com/iharuya/deordinal/main/configuration_schema.json",
+  "useGitIgnoreFile": true
+}

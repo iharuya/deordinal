@@ -68,7 +68,7 @@ fn git_ignore_default() -> bool {
     true
 }
 
-const DEFAULT_JSONC: &str = "{\n  \"useGitIgnoreFile\": true\n}\n";
+const DEFAULT_JSONC: &str = include_str!("../assets/default.deordinal.jsonc");
 
 pub(crate) fn init(directory: &Path) -> Result<PathBuf, ConfigError> {
     let metadata =

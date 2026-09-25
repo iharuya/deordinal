@@ -14,10 +14,6 @@ deordinal init                  # カレントディレクトリに設定ファ�
 
 対象は `.md`、`.js` / `.jsx` / `.mjs` / `.cjs`、`.ts` / `.tsx` / `.mts` / `.cts`、`.py` / `.pyi`。ディレクトリ探索では既定で `.gitignore` を尊重し、隠しファイルとシンボリックリンクは辿りません。明示したファイルは ignore ファイルにかかわらず検査し、明示したファイルへのシンボリックリンクは読み取ります。対象拡張子の非 UTF-8 ファイルはエラーです。
 
-## 設定
-
-設定ファイルがなくても既定の設定で動作します。`deordinal init [PATH]` で、指定した既存ディレクトリ（省略時はカレントディレクトリ）に `deordinal.jsonc` を作成できます。既存の `deordinal.json` / `deordinal.jsonc` は上書きしません。設定項目は [`configuration_schema.json`](configuration_schema.json) を参照してください。
-
 ## ルール
 
 - `deordinal/ordered-list`: Markdown の番号付きリストをリストごとに検出。入れ子は別リスト。
