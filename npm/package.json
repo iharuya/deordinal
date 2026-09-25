@@ -1,7 +1,8 @@
 {
   "name": "deordinal",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Detect and remove unnecessary ordering labels in documentation and comments.",
+  "keywords": ["code-quality", "linter", "markdown", "formatter", "documentation"],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -9,6 +10,13 @@
   },
   "bin": {
     "deordinal": "bin/deordinal.cjs"
+  },
+  "publishConfig": {
+    "executableFiles": [
+      "./vendor/darwin-arm64/deordinal",
+      "./vendor/darwin-x64/deordinal",
+      "./vendor/linux-x64/deordinal"
+    ]
   },
   "files": [
     "bin/",
