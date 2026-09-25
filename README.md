@@ -2,13 +2,19 @@
 
 A CLI that best-effort detects and removes ordering labels in prose and code comments.
 
+## Installation
+
 ```sh
-cargo install --path .
+cargo install deordinal
+```
+
+## CLI usage
+
+```sh
 cd project_path
 deordinal init                 # create a configuration file
 deordinal check                # recursively check the current directory
 deordinal check README.md src  # check the specified files and directories
-deordinal check -v             # show results for files without diagnostics
 ```
 
 Autofix is experimental: rerun the same `check` command with `--write --unsafe` to apply supported edits.

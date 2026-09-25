@@ -6,7 +6,7 @@ use std::{
     process::ExitCode,
 };
 
-use clap::{Parser, Subcommand};
+use clap::{Arg, ArgAction, CommandFactory, FromArgMatches, Parser, Subcommand};
 use deordinal::{Language, Severity, check, fix_unsafe};
 use ignore::WalkBuilder;
 use tempfile::NamedTempFile;
@@ -17,10 +17,12 @@ use config::Config;
 use report::{ErrorReport, FileReport};
 
 #[derive(Parser)]
-#[command(version, about = "Detect ordering labels in prose and code comments")]
+#[command(
+    version,
+    disable_version_flag = true,
+    about = "Detect ordering labels in prose and code comments"
+)]
 struct Cli {
-    #[arg(short, long, global = true, help = "Show checked files and counts")]
-    verbose: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -30,6 +32,8 @@ enum Command {
     Check {
         #[arg(value_name = "PATH", default_value = ".")]
         paths: Vec<PathBuf>,
+        #[arg(long, help = "Show checked files and counts")]
+        verbose: bool,
         #[arg(long, help = "Write supported fixes (requires --unsafe)")]
         write: bool,
         #[arg(long = "unsafe", help = "Allow unsafe fixes (requires --write)")]
@@ -54,10 +58,19 @@ fn normalize(path: &Path) -> PathBuf {
 }
 
 fn main() -> ExitCode {
-    let Cli { verbose, command } = Cli::parse();
+    let matches = Cli::command()
+        .arg(
+            Arg::new("version")
+                .short('v')
+                .long("version")
+                .action(ArgAction::Version),
+        )
+        .get_matches();
+    let Cli { command } = Cli::from_arg_matches(&matches).unwrap_or_else(|err| err.exit());
     match command {
         Command::Check {
             paths,
+            verbose,
             write,
             unsafe_fixes,
         } => {

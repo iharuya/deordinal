@@ -28,3 +28,4 @@ some instructions
 - `cargo test`
 - `cargo clippy --all-targets -- -D warnings`
 - Keep `README.md` in English and under 100 lines for human readers. Omit details or refer to another file instead.
+- `cargo install --path .` to test manually

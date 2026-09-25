@@ -100,7 +100,10 @@ fn groups_repeated_warnings_without_losing_locations_or_counts() {
     .unwrap();
     fs::write(dir.path().join("second.md"), "# 1. Else\n").unwrap();
 
-    let output = run(dir.path(), &["check", "repeated.md", "second.md", "-v"]);
+    let output = run(
+        dir.path(),
+        &["check", "repeated.md", "second.md", "--verbose"],
+    );
     assert_eq!(output.status.code(), Some(1));
     let out = stdout(&output);
     assert!(out.contains("✖ repeated.md:1:3: prefix: Leading ordering label (3 occurrences)\n  also at 2:3, 3:3\n"), "{out}");
@@ -150,7 +153,7 @@ fn init_creates_config_without_changing_default_check_behavior() {
     fs::write(dir.path().join(".gitignore"), "ignored.md\n").unwrap();
     fs::write(dir.path().join("ignored.md"), "# Step 2\n").unwrap();
 
-    let before = run(dir.path(), &["check", "-v"]);
+    let before = run(dir.path(), &["check", "--verbose"]);
     assert_eq!(before.status.code(), Some(1));
     let init = run(dir.path(), &["init"]);
     assert_eq!(init.status.code(), Some(0), "{}", stderr(&init));
@@ -164,7 +167,7 @@ fn init_creates_config_without_changing_default_check_behavior() {
     );
     assert_eq!(json["useGitIgnoreFile"], true);
     assert!(json.get("includes").is_none());
-    let after = run(dir.path(), &["check", "-v"]);
+    let after = run(dir.path(), &["check", "--verbose"]);
     assert_eq!(after.status.code(), before.status.code());
     assert_eq!(after.stdout, before.stdout);
     assert_eq!(after.stderr, before.stderr);
@@ -210,13 +213,24 @@ fn init_uses_an_existing_target_directory_and_never_overwrites_json() {
 }
 
 #[test]
+fn version_flags_are_only_available_at_the_root() {
+    let dir = tempdir().unwrap();
+    for flag in ["-v", "--version"] {
+        let output = run(dir.path(), &[flag]);
+        assert!(output.status.success());
+        assert!(stdout(&output).contains(env!("CARGO_PKG_VERSION")));
+    }
+    assert!(!run(dir.path(), &["check", "--version"]).status.success());
+}
+
+#[test]
 fn verbose_lists_checked_files_and_summary_without_changing_exit_code() {
     let dir = tempdir().unwrap();
     fs::write(dir.path().join("a.md"), "# タイトル\n").unwrap();
     fs::write(dir.path().join("b.ts"), "// Step 1\n").unwrap();
     fs::write(dir.path().join("c.mdx"), "# Step 2\n").unwrap();
 
-    let clean = run(dir.path(), &["check", "a.md", "-v"]);
+    let clean = run(dir.path(), &["check", "a.md", "--verbose"]);
     assert_eq!(clean.status.code(), Some(0));
     let clean_out = stdout(&clean);
     let clean_lines: Vec<_> = clean_out.lines().collect();
@@ -229,20 +243,26 @@ fn verbose_lists_checked_files_and_summary_without_changing_exit_code() {
     assert_eq!(quiet.status.code(), Some(1));
     assert_eq!(stdout(&quiet).lines().count(), 1);
 
-    for args in [&["check", "-v"][..], &["--verbose", "check"][..]] {
-        let output = run(dir.path(), args);
-        assert_eq!(output.status.code(), Some(1));
-        assert_eq!(stderr(&output), "");
-        let out = stdout(&output);
-        let lines: Vec<_> = out.lines().collect();
-        assert_eq!(lines.len(), 4, "{out}");
-        assert!(lines[0].starts_with("a.md:"));
-        assert_counts(lines[0], 0, 0);
-        assert!(lines[1].starts_with("✖ b.ts:1:4: keyword-prefix:"));
-        assert!(lines[2].starts_with("b.ts:"));
-        assert_counts(lines[2], 1, 0);
-        assert_summary(lines[3], 2, 1, 0);
-    }
+    let output = run(dir.path(), &["check", "--verbose"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(stderr(&output), "");
+    let out = stdout(&output);
+    let lines: Vec<_> = out.lines().collect();
+    assert_eq!(lines.len(), 4, "{out}");
+    assert!(lines[0].starts_with("a.md:"));
+    assert_counts(lines[0], 0, 0);
+    assert!(lines[1].starts_with("✖ b.ts:1:4: keyword-prefix:"));
+    assert!(lines[2].starts_with("b.ts:"));
+    assert_counts(lines[2], 1, 0);
+    assert_summary(lines[3], 2, 1, 0);
+}
+
+#[test]
+fn verbose_is_only_available_for_check() {
+    let dir = tempdir().unwrap();
+    assert!(!stdout(&run(dir.path(), &["--help"])).contains("--verbose"));
+    assert!(stdout(&run(dir.path(), &["check", "--help"])).contains("--verbose"));
+    assert!(!run(dir.path(), &["init", "--verbose"]).status.success());
 }
 
 #[test]
@@ -361,7 +381,7 @@ fn jsonc_config_filters_explicit_and_discovered_files() {
     }"#,
     )
     .unwrap();
-    let output = run(dir.path(), &["check", "-v"]);
+    let output = run(dir.path(), &["check", "--verbose"]);
     assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
     let out = stdout(&output);
     assert!(
@@ -374,7 +394,7 @@ fn jsonc_config_filters_explicit_and_discovered_files() {
     let summary = out.lines().last().unwrap();
     assert_summary(summary, 2, 2, 0);
 
-    let excluded = run(dir.path(), &["check", "src/a.generated.ts", "-v"]);
+    let excluded = run(dir.path(), &["check", "src/a.generated.ts", "--verbose"]);
     assert_eq!(excluded.status.code(), Some(0));
     let excluded_out = stdout(&excluded);
     let summary = excluded_out.trim_end();
@@ -394,7 +414,7 @@ fn config_globs_are_relative_to_config_not_current_directory() {
     .unwrap();
     fs::write(dir.path().join("src/entry.md"), "# Step 1\n").unwrap();
     fs::write(dir.path().join("nested/other.md"), "# Step 2\n").unwrap();
-    let output = run(&dir.path().join("nested"), &["check", "..", "-v"]);
+    let output = run(&dir.path().join("nested"), &["check", "..", "--verbose"]);
     assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
     assert!(stdout(&output).contains("../src/entry.md:1:3:"));
     let out = stdout(&output);
@@ -428,7 +448,7 @@ fn git_ignore_option_preserves_the_default_and_can_disable_ignore_files() {
         "{\"useGitIgnoreFile\": false}",
     )
     .unwrap();
-    let output = run(dir.path(), &["check", "-v"]);
+    let output = run(dir.path(), &["check", "--verbose"]);
     assert_eq!(output.status.code(), Some(1));
     let out = stdout(&output);
     let summary = out.lines().last().unwrap();
@@ -445,7 +465,7 @@ fn invalid_configuration_stops_before_checking_files() {
         ("deordinal.json", "{\"includes\": [\"**\",]}"),
     ] {
         fs::write(dir.path().join(name), contents).unwrap();
-        let output = run(dir.path(), &["check", "-v"]);
+        let output = run(dir.path(), &["check", "--verbose"]);
         assert_eq!(output.status.code(), Some(2), "{contents}");
         assert!(stdout(&output).is_empty());
         assert!(stderr(&output).contains(name));
@@ -484,7 +504,7 @@ fn write_rechecks_files_and_reports_only_remaining_warnings() {
     let code = dir.path().join("main.js");
     fs::write(&markdown, "# Step 1: Setup\n1. first\n2. second\n").unwrap();
     fs::write(&code, "// 1. init\n// someCode()\n// 2. run\n").unwrap();
-    let output = run(dir.path(), &["check", "--write", "--unsafe", "-v"]);
+    let output = run(dir.path(), &["check", "--write", "--unsafe", "--verbose"]);
     assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
     assert_eq!(
         fs::read_to_string(&markdown).unwrap(),
