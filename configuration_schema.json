@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "deordinal configuration",
+  "description": "Configuration for deordinal.json and deordinal.jsonc. Paths are relative to the configuration file's directory.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URI or path to this JSON Schema for editor validation."
+    },
+    "useGitIgnoreFile": {
+      "type": "boolean",
+      "default": true,
+      "description": "Respect Git ignore files and .ignore during directory traversal. Explicitly named files are not affected by ignore files."
+    },
+    "includes": {
+      "type": "array",
+      "description": "Ordered globs for files to check, relative to this configuration file. A matching pattern sets inclusion to true; a pattern prefixed with ! sets it to false. Later matches override earlier ones. A directory match also applies to its descendants. When omitted, all supported files are included; an empty list includes none. If provided, patterns must positively include a file before exclusions have any effect. Unlike ignore files, this filter also applies to explicitly named files.",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "description": "A glob using * for one path segment, ** for recursive segments, or a leading ! for exclusion. Paths are relative and cannot escape the configuration directory."
+      }
+    }
+  }
+}

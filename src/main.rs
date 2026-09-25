@@ -9,6 +9,9 @@ use clap::{Parser, Subcommand};
 use deordinal::{Language, LineIndex, Severity, check};
 use ignore::WalkBuilder;
 
+mod config;
+use config::Config;
+
 #[derive(Parser)]
 #[command(version, about = "Detect ordering labels in prose and code comments")]
 struct Cli {
@@ -28,6 +31,10 @@ enum Command {
     Check {
         #[arg(value_name = "PATH", default_value = ".")]
         paths: Vec<PathBuf>,
+    },
+    Init {
+        #[arg(value_name = "PATH", default_value = ".")]
+        path: PathBuf,
     },
 }
 
@@ -77,14 +84,27 @@ fn normalize(path: &Path) -> PathBuf {
 }
 
 fn main() -> ExitCode {
-    let Cli {
-        verbose,
-        command: Command::Check { paths },
-    } = Cli::parse();
-    run(&paths, verbose)
+    let Cli { verbose, command } = Cli::parse();
+    match command {
+        Command::Check { paths } => run_check(&paths, verbose),
+        Command::Init { path } => run_init(&path),
+    }
 }
 
-fn discover(paths: &[PathBuf]) -> (BTreeSet<PathBuf>, Vec<ErrorReport>) {
+fn run_init(path: &Path) -> ExitCode {
+    match config::init(path) {
+        Ok(created) => {
+            println!("{} を作成しました", normalize(&created).display());
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!("{}: {}", err.path.display(), err.message);
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn discover(paths: &[PathBuf], config: &Config) -> (BTreeSet<PathBuf>, Vec<ErrorReport>) {
     let mut files = BTreeSet::new();
     let mut errors = Vec::new();
     for path in paths {
@@ -102,6 +122,10 @@ fn discover(paths: &[PathBuf]) -> (BTreeSet<PathBuf>, Vec<ErrorReport>) {
                 }
                 let mut walk = WalkBuilder::new(path);
                 walk.follow_links(false).require_git(false);
+                walk.git_ignore(config.use_git_ignore_file)
+                    .git_exclude(config.use_git_ignore_file)
+                    .git_global(config.use_git_ignore_file)
+                    .ignore(config.use_git_ignore_file);
                 for entry in walk.build() {
                     match entry {
                         Ok(entry) if entry.file_type().is_some_and(|ty| ty.is_file()) => {
@@ -122,14 +146,29 @@ fn discover(paths: &[PathBuf]) -> (BTreeSet<PathBuf>, Vec<ErrorReport>) {
     (files, errors)
 }
 
-fn run(paths: &[PathBuf], verbose: bool) -> ExitCode {
-    let (files, mut errors) = discover(paths);
+fn run_check(paths: &[PathBuf], verbose: bool) -> ExitCode {
+    let config = match Config::load() {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("{}: {}", err.path.display(), err.message);
+            return ExitCode::from(2);
+        }
+    };
+    let (files, mut errors) = discover(paths, &config);
     let mut checked_files = 0;
     let mut warnings = 0;
     for path in files {
         let Some(language) = Language::from_path(&path) else {
             continue;
         };
+        match config.includes(&path) {
+            Ok(true) => {}
+            Ok(false) => continue,
+            Err(err) => {
+                errors.push(ErrorReport::path(&err.path, err.message));
+                continue;
+            }
+        }
         let source = match fs::read(&path) {
             Ok(bytes) => match String::from_utf8(bytes) {
                 Ok(source) => source,

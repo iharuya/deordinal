@@ -63,6 +63,67 @@ fn exit_codes_and_locations() {
 }
 
 #[test]
+fn init_creates_config_without_changing_default_check_behavior() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join("guide.md"), "# Step 1\n").unwrap();
+    fs::write(dir.path().join(".gitignore"), "ignored.md\n").unwrap();
+    fs::write(dir.path().join("ignored.md"), "# Step 2\n").unwrap();
+
+    let before = run(dir.path(), &["check", "-v"]);
+    assert_eq!(before.status.code(), Some(1));
+    let init = run(dir.path(), &["init"]);
+    assert_eq!(init.status.code(), Some(0), "{}", stderr(&init));
+    assert!(stdout(&init).contains("deordinal.jsonc"));
+    assert_eq!(
+        fs::read_to_string(dir.path().join("deordinal.jsonc")).unwrap(),
+        "{\n  \"useGitIgnoreFile\": true\n}\n"
+    );
+    let after = run(dir.path(), &["check", "-v"]);
+    assert_eq!(after.status.code(), before.status.code());
+    assert_eq!(after.stdout, before.stdout);
+    assert_eq!(after.stderr, before.stderr);
+
+    let again = run(dir.path(), &["init"]);
+    assert_eq!(again.status.code(), Some(2));
+    assert!(stderr(&again).contains("上書きしません"));
+    assert!(again.stdout.is_empty());
+    assert_eq!(
+        fs::read_to_string(dir.path().join("deordinal.jsonc")).unwrap(),
+        "{\n  \"useGitIgnoreFile\": true\n}\n"
+    );
+}
+
+#[test]
+fn init_uses_an_existing_target_directory_and_never_overwrites_json() {
+    let dir = tempdir().unwrap();
+    fs::create_dir(dir.path().join("project")).unwrap();
+    fs::write(dir.path().join("deordinal.json"), "{ invalid }").unwrap();
+    let init = run(dir.path(), &["init", "project"]);
+    assert_eq!(init.status.code(), Some(0), "{}", stderr(&init));
+    assert!(stdout(&init).contains("project/deordinal.jsonc"));
+    fs::write(dir.path().join("project/example.md"), "# Step 1\n").unwrap();
+    assert_eq!(
+        run(&dir.path().join("project"), &["check"]).status.code(),
+        Some(1)
+    );
+
+    let blocked = run(dir.path(), &["init"]);
+    assert_eq!(blocked.status.code(), Some(2));
+    assert!(stderr(&blocked).contains("deordinal.json"));
+    assert!(!dir.path().join("deordinal.jsonc").exists());
+    assert_eq!(
+        fs::read_to_string(dir.path().join("deordinal.json")).unwrap(),
+        "{ invalid }"
+    );
+
+    for path in ["nonexistent", "deordinal.json"] {
+        let output = run(dir.path(), &["init", path]);
+        assert_eq!(output.status.code(), Some(2), "{path}");
+        assert!(!dir.path().join(path).join("deordinal.jsonc").exists());
+    }
+}
+
+#[test]
 fn verbose_lists_checked_files_and_summary_without_changing_exit_code() {
     let dir = tempdir().unwrap();
     fs::write(dir.path().join("a.md"), "# タイトル\n").unwrap();
@@ -179,6 +240,126 @@ fn errors_are_ordered_by_numeric_line_and_duplicates_are_ignored() {
     assert!(errors.find("bad.md:2:").unwrap() < errors.find("bad.md:10:").unwrap());
 }
 
+#[test]
+fn jsonc_config_filters_explicit_and_discovered_files() {
+    let dir = tempdir().unwrap();
+    for (name, contents) in [
+        ("src/app.md", "# Step 1\n"),
+        ("src/a.generated.ts", "// Step 2\n"),
+        ("scripts/run.py", "# Step 3\n"),
+        ("dist/output.md", "# Step 4\n"),
+        ("coverage/report.md", "# Step 5\n"),
+        ("other.md", "# Step 6\n"),
+    ] {
+        let path = dir.path().join(name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, contents).unwrap();
+    }
+    fs::write(
+        dir.path().join("deordinal.jsonc"),
+        r#"{
+        // Order matters: later matches override earlier ones.
+        "$schema": "./configuration_schema.json",
+        "includes": [
+            "src/**", "scripts/**", "!**/*.generated.ts", "!dist", "!coverage",
+        ],
+    }"#,
+    )
+    .unwrap();
+    let output = run(dir.path(), &["check", "-v"]);
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    let out = stdout(&output);
+    assert!(
+        out.contains("scripts/run.py:1:3: deordinal/keyword-prefix"),
+        "{out}"
+    );
+    assert!(
+        out.contains("src/app.md:1:3: deordinal/keyword-prefix"),
+        "{out}"
+    );
+    assert!(!out.contains("generated.ts"), "{out}");
+    assert!(!out.contains("dist/"), "{out}");
+    assert!(out.ends_with("検査結果: 2 ファイル、警告 2 件、エラー 0 件\n"));
+
+    let excluded = run(dir.path(), &["check", "src/a.generated.ts", "-v"]);
+    assert_eq!(excluded.status.code(), Some(0));
+    assert_eq!(
+        stdout(&excluded),
+        "検査結果: 0 ファイル、警告 0 件、エラー 0 件\n"
+    );
+}
+
+#[test]
+fn config_globs_are_relative_to_config_not_current_directory() {
+    let dir = tempdir().unwrap();
+    fs::create_dir(dir.path().join("nested")).unwrap();
+    fs::create_dir(dir.path().join("src")).unwrap();
+    fs::write(
+        dir.path().join("deordinal.json"),
+        r#"{"includes": ["src/**"]}"#,
+    )
+    .unwrap();
+    fs::write(dir.path().join("src/entry.md"), "# Step 1\n").unwrap();
+    fs::write(dir.path().join("nested/other.md"), "# Step 2\n").unwrap();
+    let output = run(&dir.path().join("nested"), &["check", "..", "-v"]);
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert!(stdout(&output).contains("../src/entry.md:1:3:"));
+    assert!(stdout(&output).ends_with("検査結果: 1 ファイル、警告 1 件、エラー 0 件\n"));
+}
+
+#[test]
+fn git_ignore_option_preserves_the_default_and_can_disable_ignore_files() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".gitignore"), "ignored.md\n").unwrap();
+    fs::write(dir.path().join(".ignore"), "ignored-by-dotignore.md\n").unwrap();
+    fs::write(dir.path().join("ignored.md"), "# Step 1\n").unwrap();
+    fs::write(dir.path().join("ignored-by-dotignore.md"), "# Step 3\n").unwrap();
+    fs::create_dir(dir.path().join("nested")).unwrap();
+    fs::write(dir.path().join("nested/.gitignore"), "ignored.md\n").unwrap();
+    fs::write(dir.path().join("nested/ignored.md"), "# Step 2\n").unwrap();
+    assert_eq!(run(dir.path(), &["check"]).status.code(), Some(0));
+    fs::write(
+        dir.path().join("deordinal.json"),
+        "{\"useGitIgnoreFile\": true}",
+    )
+    .unwrap();
+    assert_eq!(run(dir.path(), &["check"]).status.code(), Some(0));
+    assert_eq!(
+        run(dir.path(), &["check", "ignored.md"]).status.code(),
+        Some(1)
+    );
+    fs::write(
+        dir.path().join("deordinal.json"),
+        "{\"useGitIgnoreFile\": false}",
+    )
+    .unwrap();
+    let output = run(dir.path(), &["check", "-v"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stdout(&output).ends_with("検査結果: 3 ファイル、警告 3 件、エラー 0 件\n"));
+}
+
+#[test]
+fn invalid_configuration_stops_before_checking_files() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join("a.md"), "# Step 1\n").unwrap();
+    for (name, contents) in [
+        ("deordinal.json", "{\"includes\": [\"[\"]}"),
+        ("deordinal.json", "{\"unknown\": true}"),
+        ("deordinal.json", "{\"includes\": [\"**\",]}"),
+    ] {
+        fs::write(dir.path().join(name), contents).unwrap();
+        let output = run(dir.path(), &["check", "-v"]);
+        assert_eq!(output.status.code(), Some(2), "{contents}");
+        assert!(stdout(&output).is_empty());
+        assert!(stderr(&output).contains(name));
+    }
+    fs::write(dir.path().join("deordinal.json"), "{}").unwrap();
+    fs::write(dir.path().join("deordinal.jsonc"), "{}").unwrap();
+    let output = run(dir.path(), &["check"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("deordinal.jsonc"));
+}
+
 #[cfg(unix)]
 #[test]
 fn directory_symlinks_are_not_followed_but_explicit_file_symlinks_are_read() {
@@ -201,4 +382,7 @@ fn directory_symlinks_are_not_followed_but_explicit_file_symlinks_are_read() {
     let linked_dir = run(dir.path(), &["check", "linked"]);
     assert_eq!(linked_dir.status.code(), Some(2));
     assert!(stderr(&linked_dir).contains("シンボリックリンク"));
+    let init_linked_dir = run(dir.path(), &["init", "linked"]);
+    assert_eq!(init_linked_dir.status.code(), Some(2));
+    assert!(!dir.path().join("real/deordinal.jsonc").exists());
 }
