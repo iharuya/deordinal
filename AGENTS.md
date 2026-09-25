@@ -1,19 +1,19 @@
 # deordinal
 
-LLMは、大した意味もなく `1.`, `2.`, `Phase A`, `Step 1` などの番号・段階ラベルを付けがちである。こうしたOrdering（順序づけ）は、後から項目の追加・削除・並べ替えが発生した際に不要な修正コストや変更上の制約になる。
+LLMs tend to add numbered or phased labels such as `1.`, `2.`, `Phase A`, and `Step 1` without much reason. This kind of ordering can create unnecessary maintenance costs and constraints when items are later added, removed, or rearranged.
 
-Markdown に限らず、ソースコードのコメント、ドキュメント、設定ファイルなども対象に順序付けを検出し、警告または除去するBiomeのようなツール。
+A Biome-like tool that detects and warns about or removes ordering in source-code comments, documentation, configuration files, and more—not just Markdown.
 
-## 判定の原則
+## Detection principles
 
-- 文章の冒頭に付いた順序ラベルと、番号付きリストのような順序を表す構造を扱う。見出し・引用・箇条書き・コメントなどでは、記法そのものと本文を区別して判定する。文中に現れる番号への参照まで一律に違反としない。
-- `1. 概要`、`1: 概要`、`(1) 概要`、`① 概要`、`Step 1`、`Phase A` などは検出候補。一方、`1.29 GB`、`2025 年` のような数値・単位・年・バージョンを順序ラベルと取り違えない。同じ箇所に重複した警告を出さない。
-- 文章の構文を踏まえて検査対象を特定する。コード本体や通常の文字列、文書内のコードなどを文章として走査しない。別の構文を持つ形式を、拡張子だけを増やして既存の解析に流用しない。
-- 順序が本当に必要かという意味判定を推測で決めない。曖昧なケースは誤検知を増やすよりも適用範囲を明確にし、必要な順序は明示的な抑制で扱えるようにする。
+- Handle ordering labels at the beginning of text and structures that express ordering, such as numbered lists. Distinguish syntax from content in headings, quotes, bullet points, comments, and other contexts. Do not treat every in-text reference to a number as a violation.
+- Consider forms such as `1. Overview`, `1: Overview`, `(1) Overview`, `① Overview`, `Step 1`, and `Phase A` as candidates for detection. Do not mistake numbers followed by units, years, or versions—such as `1.29 GB` and `2025`—for ordering labels. Do not emit duplicate warnings for the same location.
+- Determine what to inspect based on the document's syntax. Do not scan code or ordinary strings as prose, nor scan embedded code in documents as prose. Do not route formats with different syntax through an existing parser merely by adding their file extensions.
+- Do not guess whether ordering is semantically necessary. For ambiguous cases, prefer clearly defining the scope over increasing false positives; allow necessary ordering to be handled with explicit suppressions.
 
-## 明示的な抑制
+## Explicit suppressions
 
-手順書、チュートリアルなどの文章ファイルで、Orderingをすることが有益である場合にこのLinterが無視できるようにする。
+Allow this linter to ignore ordering in prose files such as procedures and tutorials when ordering is useful:
 
 ```md
 <!-- deordinal-ignore-start: reason -->
@@ -21,10 +21,10 @@ some instructions
 <!-- deordinal-ignore-end -->
 ```
 
-`deordinal`は、**プログラミング言語のコメントにおいてはいかなるOrderingも不要**と考える。それらではIgnore記法をサポートしない。
+`deordinal` considers **all ordering unnecessary in programming-language comments**. Do not support ignore directives in those comments.
 
 ## Development
 
 - `cargo test`
-- `cargo clippy --all-targets -- -D warnings` 
-- `README.md`は人間向けに英語で100行以内に抑える。細かいことは書かないか別ファイルへの参照に留める。
+- `cargo clippy --all-targets -- -D warnings`
+- Keep `README.md` in English and under 100 lines for human readers. Omit details or refer to another file instead.

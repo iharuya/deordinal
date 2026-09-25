@@ -40,31 +40,42 @@ static CIRCLED: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[①-⑳㉑-㉟㊱-㊿](?:[ \t]+|$)").unwrap());
 
 pub(crate) fn ordered_list(start: usize, end: usize) -> Diagnostic {
-    Diagnostic::warning(ORDERED_LIST, "番号付きリストを使用しています", start, end)
+    Diagnostic::warning(ORDERED_LIST, "Ordered list used", start, end)
 }
 
-pub(crate) fn check_line(line: &str, start: usize, diagnostics: &mut Vec<Diagnostic>) {
+pub(crate) fn check_line(
+    line: &str,
+    start: usize,
+    diagnostics: &mut Vec<Diagnostic>,
+    allow_fix: bool,
+) {
     let text = line.trim_start_matches([' ', '\t']);
     let start = start + line.len() - text.len();
     let found = if let Some(label) = KEYWORD.find(text) {
-        Some((KEYWORD_PREFIX, "先頭に段階ラベルがあります", label.end()))
+        Some((KEYWORD_PREFIX, "Leading phase label", label.end()))
     } else if let Some(label) = BRACKETED.find(text) {
-        Some((PREFIX, "先頭に順序ラベルがあります", label.end()))
+        Some((PREFIX, "Leading ordering label", label.end()))
     } else if let Some(label) = NUMBER.captures(text).filter(|m| numbered_label(text, m)) {
         Some((
             PREFIX,
-            "先頭に順序ラベルがあります",
+            "Leading ordering label",
             label.get(0).unwrap().end(),
         ))
     } else {
         LETTER
             .find(text)
             .or_else(|| CIRCLED.find(text))
-            .map(|label| (PREFIX, "先頭に順序ラベルがあります", label.end()))
+            .map(|label| (PREFIX, "Leading ordering label", label.end()))
     };
     if let Some((rule, message, len)) = found {
         let end = start + text[..len].trim_end_matches([' ', '\t']).len();
-        diagnostics.push(Diagnostic::warning(rule, message, start, end));
+        let mut diagnostic = Diagnostic::warning(rule, message, start, end);
+        let rest = &text[len..];
+        let whitespace = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+        if allow_fix && rest[whitespace..].chars().any(char::is_alphanumeric) {
+            diagnostic.fix = Some(start..start + len + whitespace);
+        }
+        diagnostics.push(diagnostic);
     }
 }
 
@@ -126,7 +137,7 @@ mod tests {
 
     fn rule(text: &str) -> Option<&'static str> {
         let mut diagnostics = Vec::new();
-        check_line(text, 0, &mut diagnostics);
+        check_line(text, 0, &mut diagnostics, false);
         diagnostics.first().map(|d| d.rule)
     }
 
@@ -202,7 +213,7 @@ mod tests {
     #[test]
     fn diagnostics_point_at_label() {
         let mut diagnostics = Vec::new();
-        check_line("  Step 1: 準備", 10, &mut diagnostics);
+        check_line("  Step 1: 準備", 10, &mut diagnostics, false);
         assert_eq!(diagnostics[0].start, 12);
         assert_eq!(diagnostics[0].rule, KEYWORD_PREFIX);
     }

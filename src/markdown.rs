@@ -10,6 +10,7 @@ pub(crate) fn check(source: &str) -> Vec<Diagnostic> {
     let mut directives = Vec::new();
     let mut table_depth = 0;
     let mut code_depth = 0;
+    let mut list_stack = Vec::new();
     let options = Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS;
     for (event, range) in Parser::new_ext(&source[base..], options).into_offset_iter() {
         let range = (base + range.start)..(base + range.end);
@@ -18,17 +19,33 @@ pub(crate) fn check(source: &str) -> Vec<Diagnostic> {
             Event::End(TagEnd::Table) => table_depth -= 1,
             Event::Start(Tag::CodeBlock(_)) => code_depth += 1,
             Event::End(TagEnd::CodeBlock) => code_depth -= 1,
-            Event::Start(Tag::List(Some(_))) if table_depth == 0 && code_depth == 0 => {
-                if let Some(marker) = list_marker(source, range.start) {
+            Event::Start(Tag::List(number)) => {
+                if number.is_some()
+                    && table_depth == 0
+                    && code_depth == 0
+                    && let Some(marker) = list_marker(source, range.start)
+                {
                     diagnostics.push(rules::ordered_list(marker.start, marker.end));
                 }
+                list_stack.push(number.is_some());
+            }
+            Event::End(TagEnd::List(_)) => {
+                list_stack.pop();
             }
             Event::Text(_) if table_depth == 0 && code_depth == 0 => {
                 let raw = &source[range.clone()];
                 for (offset, line) in physical_lines(raw) {
                     let at = range.start + offset;
                     if is_structural_prefix(&source[line_start(source, at)..at]) {
-                        rules::check_line(line, at, &mut diagnostics);
+                        let fixable = !list_stack.contains(&true);
+                        let count = diagnostics.len();
+                        rules::check_line(line, at, &mut diagnostics, fixable);
+                        if fixable && diagnostics.len() > count {
+                            let diagnostic = diagnostics.last_mut().unwrap();
+                            if diagnostic.fix.is_none() {
+                                offer_formatted_text_fix(source, diagnostic);
+                            }
+                        }
                     }
                 }
             }
@@ -52,6 +69,29 @@ pub(crate) fn check(source: &str) -> Vec<Diagnostic> {
         .retain(|diag| !file_ignored && !ranges.iter().any(|range| range.contains(&diag.start)));
     diagnostics.extend(errors);
     diagnostics
+}
+
+pub(crate) fn same_structure(before: &str, after: &str) -> bool {
+    fn structure(source: &str) -> Vec<String> {
+        let base = frontmatter_end(source);
+        let options = Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS;
+        Parser::new_ext(&source[base..], options)
+            .filter(|event| !matches!(event, Event::Text(_)))
+            .map(|event| format!("{event:?}"))
+            .collect()
+    }
+    structure(before) == structure(after)
+}
+
+fn offer_formatted_text_fix(source: &str, diagnostic: &mut Diagnostic) {
+    let rest = &source[diagnostic.end..line_end(source, diagnostic.end)];
+    let whitespace = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+    let options = Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS;
+    if Parser::new_ext(&rest[whitespace..], options)
+        .any(|event| matches!(event, Event::Text(text) if text.chars().any(char::is_alphanumeric)))
+    {
+        diagnostic.fix = Some(diagnostic.start..diagnostic.end + whitespace);
+    }
 }
 
 fn line_start(source: &str, at: usize) -> usize {
@@ -179,13 +219,13 @@ fn parse_directives(
         if let Some(reason) = reason("deordinal-ignore-start") {
             if reason.is_empty() {
                 errors.push(Diagnostic::error(
-                    "ignore-start には理由が必要です",
+                    "ignore-start requires a reason",
                     range.start,
                     range.end,
                 ));
             } else if open.is_some() {
                 errors.push(Diagnostic::error(
-                    "ignore-start を入れ子にできません",
+                    "ignore-start cannot be nested",
                     range.start,
                     range.end,
                 ));
@@ -197,7 +237,7 @@ fn parse_directives(
                 ranges.push(start.end..range.start);
             } else {
                 errors.push(Diagnostic::error(
-                    "対応する ignore-start がありません",
+                    "ignore-end has no matching ignore-start",
                     range.start,
                     range.end,
                 ));
@@ -205,7 +245,7 @@ fn parse_directives(
         } else if let Some(reason) = reason("deordinal-ignore-file") {
             if reason.is_empty() {
                 errors.push(Diagnostic::error(
-                    "ignore-file には理由が必要です",
+                    "ignore-file requires a reason",
                     range.start,
                     range.end,
                 ));
@@ -213,7 +253,7 @@ fn parse_directives(
                 != Some(range.start + source[range.start..range.end].find('<').unwrap_or(0))
             {
                 errors.push(Diagnostic::error(
-                    "ignore-file は文書の先頭に置いてください",
+                    "ignore-file must be at the start of the document",
                     range.start,
                     range.end,
                 ));
@@ -222,7 +262,7 @@ fn parse_directives(
             }
         } else {
             errors.push(Diagnostic::error(
-                "不正または未対応の ignore 記法です",
+                "Invalid or unsupported ignore directive",
                 range.start,
                 range.end,
             ));
@@ -230,7 +270,7 @@ fn parse_directives(
     }
     if let Some(start) = open {
         errors.push(Diagnostic::error(
-            "ignore-start が閉じられていません",
+            "ignore-start is not closed",
             start.start,
             start.end,
         ));
@@ -301,6 +341,20 @@ mod tests {
             .filter(|d| d.severity == Severity::Error)
             .collect();
         assert_eq!(errors.len(), 6, "{errors:?}");
+        assert_eq!(
+            errors
+                .iter()
+                .map(|error| error.message.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "ignore-start requires a reason",
+                "ignore-end has no matching ignore-start",
+                "Invalid or unsupported ignore directive",
+                "ignore-file must be at the start of the document",
+                "ignore-start is not closed",
+                "ignore-start cannot be nested",
+            ]
+        );
     }
 
     #[test]

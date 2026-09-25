@@ -1,48 +1,47 @@
 # deordinal
 
-文章・コードコメント中のOrdering（順序付け）をベストエフォートで検出・剥がすCLI
+A CLI that best-effort detects and removes ordering labels in prose and code comments.
 
 ```sh
 cargo install --path .
 cd project_path
-deordinal init                  # 設定ファイルを作成
-deordinal check                 # カレントディレクトリを再帰的に検査
-deordinal check README.md src  # 明示したファイル・ディレクトリを検査
-deordinal check -v              # 診断がないファイルも検査結果を表示
+deordinal init                 # create a configuration file
+deordinal check                # recursively check the current directory
+deordinal check README.md src  # check the specified files and directories
+deordinal check -v             # show results for files without diagnostics
 ```
 
+Supported files: `.md`, `.js` / `.jsx` / `.mjs` / `.cjs`, `.ts` / `.tsx` / `.mts` / `.cts`, `.py` / `.pyi`
 
-サポートするファイル： `.md`、`.js` / `.jsx` / `.mjs` / `.cjs`、`.ts` / `.tsx` / `.mts` / `.cts`、`.py` / `.pyi`
+## Default rules
 
-## デフォルトルール
+- `ordered-list`: Detects numbered Markdown lists, treating each list separately. Nested lists are separate lists.
+- `prefix`: Detects labels at the start of prose, such as `1. Overview`, `1: Overview`, `A) Overview`, `(1) Overview`, and `① Overview`.
+- `keyword-prefix`: Detects labels at the start of prose, such as `Step 1` and `Phase A`. Headings containing only a label are also checked.
 
-- `ordered-list`: Markdown の番号付きリストをリストごとに検出。入れ子は別リスト。
-- `prefix`: `1. 概要`、`1: 概要`、`A) 概要`、`(1) 概要`、`① 概要` などの文章先頭ラベル。
-- `keyword-prefix`: `Step 1`、`Phase A`、`ステップ 1` などの文章先頭ラベル。ラベルだけの見出しも対象。
+Some expressions that look like numbers with units, years, or versions are excluded, but the tool does not determine whether ordering is necessary based on meaning. References within sentences are not checked.
 
-数値・単位・年・バージョンに見える表現を一部除外しますが、意味による必要性の判定はしません。文中の参照表現は検査しません。
+## Configuration
 
-## 設定
+Specify target files with `glob` patterns; use `!` to exclude files.
 
-対象ファイルの指定は`glob`で、`!`で除外できます。
+See the [JSON Schema](./configuration_schema.json) for details.
 
-詳細は[JSON Schema](./configuration_schema.json)。
+## Markdown ignores
 
-## Markdown の ignore
+For ordering that is necessary, use a reasoned range or file ignore directive in a standalone HTML comment.
 
-必要なOrderingには、単独行の HTML コメントによる理由付き範囲指定またはファイル指定を使います。
-
-範囲指定：
+Range ignore:
 ````md
-<!-- deordinal-ignore-start: この手順は順番に実行する必要がある -->
-1. サービスを停止する
-2. バックアップを取得する
+<!-- deordinal-ignore-start: These instructions must be followed in order. -->
+1. Stop the service
+2. Create a backup
 <!-- deordinal-ignore-end -->
 ````
 
-ファイル全体を除外：
+Ignore the entire file:
 ````md
-<!-- deordinal-ignore-file: 順序付きの操作手順書である -->
+<!-- deordinal-ignore-file: This is an ordered operations manual. -->
 ````
 
-コード中のOrderingは不要なので内コメントに ignore 記法はありません。
+Ordering in code comments is not needed, so ignore directives are not supported in them.

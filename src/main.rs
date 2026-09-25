@@ -1,13 +1,15 @@
 use std::{
     collections::BTreeSet,
     fs,
+    io::{self, Write},
     path::{Component, Path, PathBuf},
     process::ExitCode,
 };
 
 use clap::{Parser, Subcommand};
-use deordinal::{Language, LineIndex, Severity, check};
+use deordinal::{Language, LineIndex, Severity, check, fix_unsafe};
 use ignore::WalkBuilder;
+use tempfile::NamedTempFile;
 
 mod config;
 use config::Config;
@@ -15,12 +17,7 @@ use config::Config;
 #[derive(Parser)]
 #[command(version, about = "Detect ordering labels in prose and code comments")]
 struct Cli {
-    #[arg(
-        short,
-        long,
-        global = true,
-        help = "検査したファイルと件数を表示します"
-    )]
+    #[arg(short, long, global = true, help = "Show checked files and counts")]
     verbose: bool,
     #[command(subcommand)]
     command: Command,
@@ -31,6 +28,10 @@ enum Command {
     Check {
         #[arg(value_name = "PATH", default_value = ".")]
         paths: Vec<PathBuf>,
+        #[arg(long, help = "Write supported fixes (requires --unsafe)")]
+        write: bool,
+        #[arg(long = "unsafe", help = "Allow unsafe fixes (requires --write)")]
+        unsafe_fixes: bool,
     },
     Init {
         #[arg(value_name = "PATH", default_value = ".")]
@@ -86,7 +87,18 @@ fn normalize(path: &Path) -> PathBuf {
 fn main() -> ExitCode {
     let Cli { verbose, command } = Cli::parse();
     match command {
-        Command::Check { paths } => run_check(&paths, verbose),
+        Command::Check {
+            paths,
+            write,
+            unsafe_fixes,
+        } => {
+            if write != unsafe_fixes {
+                eprintln!("Use --write and --unsafe together");
+                ExitCode::from(2)
+            } else {
+                run_check(&paths, verbose, write)
+            }
+        }
         Command::Init { path } => run_init(&path),
     }
 }
@@ -94,7 +106,7 @@ fn main() -> ExitCode {
 fn run_init(path: &Path) -> ExitCode {
     match config::init(path) {
         Ok(created) => {
-            println!("{} を作成しました", normalize(&created).display());
+            println!("Created {}", normalize(&created).display());
             ExitCode::SUCCESS
         }
         Err(err) => {
@@ -114,10 +126,7 @@ fn discover(paths: &[PathBuf], config: &Config) -> (BTreeSet<PathBuf>, Vec<Error
             }
             Ok(meta) if meta.is_dir() => {
                 if fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink()) {
-                    errors.push(ErrorReport::path(
-                        path,
-                        "ディレクトリへのシンボリックリンクは検査しません",
-                    ));
+                    errors.push(ErrorReport::path(path, "Skipping directory symlink"));
                     continue;
                 }
                 let mut walk = WalkBuilder::new(path);
@@ -136,17 +145,30 @@ fn discover(paths: &[PathBuf], config: &Config) -> (BTreeSet<PathBuf>, Vec<Error
                     }
                 }
             }
-            Ok(_) => errors.push(ErrorReport::path(
-                path,
-                "通常のファイルまたはディレクトリではありません",
-            )),
+            Ok(_) => errors.push(ErrorReport::path(path, "Expected a file or directory")),
             Err(err) => errors.push(ErrorReport::path(path, err)),
         }
     }
     (files, errors)
 }
 
-fn run_check(paths: &[PathBuf], verbose: bool) -> ExitCode {
+fn write_fixed(path: &Path, contents: &str) -> io::Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Refusing to write to symlinks or non-files",
+        ));
+    }
+    let mut temp = NamedTempFile::new_in(path.parent().unwrap_or(Path::new(".")))?;
+    temp.as_file().set_permissions(metadata.permissions())?;
+    temp.write_all(contents.as_bytes())?;
+    temp.as_file().sync_all()?;
+    temp.persist(path).map_err(|error| error.error)?;
+    Ok(())
+}
+
+fn run_check(paths: &[PathBuf], verbose: bool, write: bool) -> ExitCode {
     let config = match Config::load() {
         Ok(config) => config,
         Err(err) => {
@@ -173,10 +195,7 @@ fn run_check(paths: &[PathBuf], verbose: bool) -> ExitCode {
             Ok(bytes) => match String::from_utf8(bytes) {
                 Ok(source) => source,
                 Err(err) => {
-                    errors.push(ErrorReport::path(
-                        &path,
-                        format!("UTF-8 として読めません: {err}"),
-                    ));
+                    errors.push(ErrorReport::path(&path, format!("Invalid UTF-8: {err}")));
                     continue;
                 }
             },
@@ -186,11 +205,27 @@ fn run_check(paths: &[PathBuf], verbose: bool) -> ExitCode {
             }
         };
         checked_files += 1;
-        let lines = LineIndex::new(&source);
+        let mut diagnostics = check(&source, language);
+        let mut written = None;
+        if write
+            && !diagnostics.iter().any(|d| d.severity == Severity::Error)
+            && let Some(fixed) = fix_unsafe(&source, language)
+        {
+            match write_fixed(&path, &fixed) {
+                Ok(()) => {
+                    diagnostics = check(&fixed, language);
+                    written = Some(fixed);
+                    println!("✔ Applied fixes to {}", path.display());
+                }
+                Err(err) => errors.push(ErrorReport::path(&path, err)),
+            }
+        }
+        let checked_source = written.as_deref().unwrap_or(&source);
+        let lines = LineIndex::new(checked_source);
         let mut file_warnings = 0;
         let mut file_errors = 0;
-        for diagnostic in check(&source, language) {
-            let (line, column) = lines.line_column(&source, diagnostic.start);
+        for diagnostic in diagnostics {
+            let (line, column) = lines.line_column(checked_source, diagnostic.start);
             let message = format!("{}: {}", diagnostic.rule, diagnostic.message);
             if diagnostic.severity == Severity::Error {
                 file_errors += 1;
@@ -208,14 +243,14 @@ fn run_check(paths: &[PathBuf], verbose: bool) -> ExitCode {
         warnings += file_warnings;
         if verbose {
             println!(
-                "{}: 検査済み (警告 {file_warnings} 件、エラー {file_errors} 件)",
+                "{}: checked ({file_warnings} warnings, {file_errors} errors)",
                 path.display()
             );
         }
     }
     if verbose {
         println!(
-            "検査結果: {checked_files} ファイル、警告 {warnings} 件、エラー {} 件",
+            "Summary: {checked_files} files, {warnings} warnings, {} errors",
             errors.len()
         );
     }

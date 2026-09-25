@@ -23,12 +23,12 @@ fn stderr(output: &Output) -> String {
 }
 
 fn assert_counts(line: &str, warnings: usize, errors: usize) {
-    assert!(line.contains(&format!("警告 {warnings} 件")), "{line}");
-    assert!(line.contains(&format!("エラー {errors} 件")), "{line}");
+    assert!(line.contains(&format!("{warnings} warnings")), "{line}");
+    assert!(line.contains(&format!("{errors} errors")), "{line}");
 }
 
 fn assert_summary(line: &str, files: usize, warnings: usize, errors: usize) {
-    assert!(line.contains(&format!(": {files} ファイル")), "{line}");
+    assert!(line.contains(&format!("{files} files")), "{line}");
     assert_counts(line, warnings, errors);
 }
 
@@ -40,7 +40,7 @@ fn exit_codes_and_locations() {
     assert_eq!(warning.status.code(), Some(1));
     assert_eq!(
         stdout(&warning),
-        "✖ readme.md:1:3: keyword-prefix: 先頭に段階ラベルがあります\n"
+        "✖ readme.md:1:3: keyword-prefix: Leading phase label\n"
     );
 
     fs::write(dir.path().join("readme.md"), "# タイトル\n").unwrap();
@@ -58,15 +58,14 @@ fn exit_codes_and_locations() {
 
     fs::write(
         dir.path().join("readme.md"),
-        "<!-- deordinal-ignore-file -->\n",
+        "<!-- deordinal-ignore-file: -->\n",
     )
     .unwrap();
     let error = run(dir.path(), &["check", "readme.md"]);
     assert_eq!(error.status.code(), Some(2));
-    assert!(
-        stderr(&error).starts_with("✖ readme.md:1:1: ignore: "),
-        "{}",
-        stderr(&error)
+    assert_eq!(
+        stderr(&error),
+        "✖ readme.md:1:1: ignore: ignore-file requires a reason\n"
     );
 
     fs::write(dir.path().join("readme.md"), [0xff]).unwrap();
@@ -87,7 +86,7 @@ fn diagnostic_rule_names_and_locations_match_the_cli_output() {
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         stdout(&output),
-        "✖ guide.md:1:3: prefix: 先頭に順序ラベルがあります\n✖ guide.md:3:1: ordered-list: 番号付きリストを使用しています\n"
+        "✖ guide.md:1:3: prefix: Leading ordering label\n✖ guide.md:3:1: ordered-list: Ordered list used\n"
     );
 }
 
@@ -102,7 +101,7 @@ fn init_creates_config_without_changing_default_check_behavior() {
     assert_eq!(before.status.code(), Some(1));
     let init = run(dir.path(), &["init"]);
     assert_eq!(init.status.code(), Some(0), "{}", stderr(&init));
-    assert!(stdout(&init).contains("deordinal.jsonc"));
+    assert_eq!(stdout(&init), "Created deordinal.jsonc\n");
     let generated = fs::read_to_string(dir.path().join("deordinal.jsonc")).unwrap();
     assert_eq!(generated, include_str!("../assets/default.deordinal.jsonc"));
     let json: serde_json::Value = serde_json::from_str(&generated).unwrap();
@@ -404,6 +403,124 @@ fn invalid_configuration_stops_before_checking_files() {
     assert!(stderr(&output).contains("deordinal.jsonc"));
 }
 
+#[test]
+fn write_requires_explicit_unsafe_opt_in_and_never_writes_on_argument_error() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("guide.md");
+    fs::write(&path, "# Step 1: Setup\n").unwrap();
+    for args in [
+        &["check", "--write", "guide.md"][..],
+        &["check", "--unsafe", "guide.md"][..],
+    ] {
+        let output = run(dir.path(), args);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(stdout(&output).is_empty());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "# Step 1: Setup\n");
+    }
+    assert_eq!(
+        run(dir.path(), &["check", "guide.md"]).status.code(),
+        Some(1)
+    );
+}
+
+#[test]
+fn write_rechecks_files_and_reports_only_remaining_warnings() {
+    let dir = tempdir().unwrap();
+    let markdown = dir.path().join("guide.md");
+    let code = dir.path().join("main.js");
+    fs::write(&markdown, "# Step 1: Setup\n1. first\n2. second\n").unwrap();
+    fs::write(&code, "// 1. init\n// someCode()\n// 2. run\n").unwrap();
+    let output = run(dir.path(), &["check", "--write", "--unsafe", "-v"]);
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert_eq!(
+        fs::read_to_string(&markdown).unwrap(),
+        "# Setup\n1. first\n2. second\n"
+    );
+    assert_eq!(
+        fs::read_to_string(&code).unwrap(),
+        "// init\n// someCode()\n// run\n"
+    );
+    assert_eq!(stdout(&output).matches("✖ ").count(), 1);
+    assert_eq!(stdout(&output).matches("Applied fixes").count(), 2);
+    assert!(stdout(&output).contains("guide.md:2:1: ordered-list"));
+    assert_summary(stdout(&output).lines().last().unwrap(), 2, 1, 0);
+    let again = run(dir.path(), &["check", "--write", "--unsafe"]);
+    assert_eq!(again.status.code(), Some(1));
+    assert_eq!(stdout(&again).lines().count(), 1);
+    assert!(!stdout(&again).contains("Applied fixes"));
+}
+
+#[test]
+fn write_respects_ignore_and_does_not_edit_files_with_ignore_errors() {
+    let dir = tempdir().unwrap();
+    let ignored = "<!-- deordinal-ignore-start: required -->\n# Step 1: ignored\n<!-- deordinal-ignore-end -->\n# Step 2: edit\n";
+    fs::write(dir.path().join("ignored.md"), ignored).unwrap();
+    let invalid = "# Step 1: unchanged\n<!-- deordinal-ignore -->\n";
+    fs::write(dir.path().join("invalid.md"), invalid).unwrap();
+    let output = run(dir.path(), &["check", "--write", "--unsafe"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(
+        fs::read_to_string(dir.path().join("ignored.md")).unwrap(),
+        ignored.replace("# Step 2: edit", "# edit")
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("invalid.md")).unwrap(),
+        invalid
+    );
+}
+
+#[test]
+fn write_respects_configuration_for_explicit_paths() {
+    let dir = tempdir().unwrap();
+    fs::create_dir(dir.path().join("src")).unwrap();
+    fs::write(
+        dir.path().join("deordinal.json"),
+        r#"{"includes":["src/**"]}"#,
+    )
+    .unwrap();
+    let included = dir.path().join("src/inside.md");
+    let excluded = dir.path().join("outside.md");
+    fs::write(&included, "# Step 1: Inside\n").unwrap();
+    fs::write(&excluded, "# Step 1: Outside\n").unwrap();
+    let output = run(
+        dir.path(),
+        &[
+            "check",
+            "--write",
+            "--unsafe",
+            "src/inside.md",
+            "outside.md",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(fs::read_to_string(included).unwrap(), "# Inside\n");
+    assert_eq!(fs::read_to_string(excluded).unwrap(), "# Step 1: Outside\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn write_rejects_explicit_file_symlinks_and_preserves_permissions() {
+    use std::os::unix::{fs::PermissionsExt, fs::symlink};
+
+    let dir = tempdir().unwrap();
+    let real = dir.path().join("real.md");
+    fs::write(&real, "# Step 1: Title\n").unwrap();
+    fs::set_permissions(&real, fs::Permissions::from_mode(0o755)).unwrap();
+    symlink(&real, dir.path().join("alias.md")).unwrap();
+    let rejected = run(dir.path(), &["check", "--write", "--unsafe", "alias.md"]);
+    assert_eq!(rejected.status.code(), Some(2));
+    assert!(stderr(&rejected).contains("symlinks"));
+    assert_eq!(fs::read_to_string(&real).unwrap(), "# Step 1: Title\n");
+
+    let written = run(dir.path(), &["check", "--write", "--unsafe", "real.md"]);
+    assert_eq!(written.status.code(), Some(0));
+    assert_eq!(fs::read_to_string(&real).unwrap(), "# Title\n");
+    assert_eq!(
+        fs::metadata(&real).unwrap().permissions().mode() & 0o777,
+        0o755
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn directory_symlinks_are_not_followed_but_explicit_file_symlinks_are_read() {
@@ -425,7 +542,7 @@ fn directory_symlinks_are_not_followed_but_explicit_file_symlinks_are_read() {
 
     let linked_dir = run(dir.path(), &["check", "linked"]);
     assert_eq!(linked_dir.status.code(), Some(2));
-    assert!(stderr(&linked_dir).contains("シンボリックリンク"));
+    assert!(stderr(&linked_dir).contains("symlink"));
     let init_linked_dir = run(dir.path(), &["init", "linked"]);
     assert_eq!(init_linked_dir.status.code(), Some(2));
     assert!(!dir.path().join("real/deordinal.jsonc").exists());

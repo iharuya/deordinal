@@ -35,7 +35,7 @@ impl Pattern {
         {
             return Err(ConfigError::new(
                 path,
-                format!("includes[{index}]: 無効な相対 glob: {pattern:?}"),
+                format!("includes[{index}]: invalid relative glob: {pattern:?}"),
             ));
         }
         let matcher = GlobBuilder::new(glob)
@@ -76,15 +76,12 @@ pub(crate) fn init(directory: &Path) -> Result<PathBuf, ConfigError> {
     if !metadata.is_dir() {
         return Err(ConfigError::new(
             directory,
-            "既存の通常のディレクトリを指定してください",
+            "Expected an existing directory",
         ));
     }
     let json = directory.join("deordinal.json");
     if exists(&json)? {
-        return Err(ConfigError::new(
-            &json,
-            "設定ファイルが既に存在します（上書きしません）",
-        ));
+        return Err(ConfigError::new(&json, "Config file already exists"));
     }
     let jsonc = directory.join("deordinal.jsonc");
     let mut file = OpenOptions::new()
@@ -102,7 +99,7 @@ pub(crate) fn init(directory: &Path) -> Result<PathBuf, ConfigError> {
 
 fn init_error(path: &Path, err: io::Error) -> ConfigError {
     if err.kind() == io::ErrorKind::AlreadyExists {
-        ConfigError::new(path, "設定ファイルが既に存在します（上書きしません）")
+        ConfigError::new(path, "Config file already exists")
     } else {
         ConfigError::new(path, err)
     }
@@ -157,7 +154,7 @@ impl Config {
             if has_json && has_jsonc {
                 return Err(ConfigError::new(
                     root,
-                    "deordinal.json と deordinal.jsonc を同じ場所に置くことはできません",
+                    "Both deordinal.json and deordinal.jsonc are present",
                 ));
             }
             if has_json {
@@ -386,7 +383,7 @@ mod tests {
                 .err()
                 .unwrap()
                 .message
-                .contains("同じ場所")
+                .contains("Both deordinal.json and deordinal.jsonc")
         );
     }
 }

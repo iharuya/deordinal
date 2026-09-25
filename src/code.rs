@@ -51,7 +51,10 @@ fn visit(node: Node<'_>, source: &str, python: bool, diagnostics: &mut Vec<Diagn
             };
             line_start += marker.len();
             text = &text[marker.len()..];
-            rules::check_line(text, line_start, diagnostics);
+            if block {
+                text = text.strip_suffix("*/").unwrap_or(text);
+            }
+            rules::check_line(text, line_start, diagnostics, true);
         }
         return;
     }
@@ -121,7 +124,7 @@ fn docstring(body: Node<'_>, source: &str, diagnostics: &mut Vec<Diagnostic>) {
     };
     let start = string.start_byte() + prefix_len + quote.len();
     for (offset, line) in physical_lines(content) {
-        rules::check_line(line, start + offset, diagnostics);
+        rules::check_line(line, start + offset, diagnostics, false);
     }
 }
 
