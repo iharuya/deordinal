@@ -3,6 +3,9 @@ name = "deordinal"
 version = "0.2.0"
 edition = "2024"
 description = "Detect and remove unnecessary ordering labels in documentation and comments."
+license = "MIT"
+repository = "https://github.com/iharuya/deordinal"
+readme = "README.md"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
