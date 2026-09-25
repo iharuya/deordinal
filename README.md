@@ -5,6 +5,7 @@ A CLI that best-effort detects and removes ordering labels in prose and code com
 ## Installation
 
 In JS/TS project: `pnpm add -D deordinal`
+
 Global install: `cargo install deordinal --locked`
 
 ## CLI usage
