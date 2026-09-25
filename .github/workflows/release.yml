@@ -1,0 +1,122 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version already committed to both manifests (X.Y.Z)
+        type: string
+        required: true
+      notes:
+        description: GitHub Release notes
+        type: string
+        required: true
+
+concurrency:
+  group: deordinal-release
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+      - shell: bash
+        env:
+          ENABLED: ${{ vars.RELEASE_AUTOMATION_ENABLED }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          test "$ENABLED" = 'true' || { echo 'Set RELEASE_AUTOMATION_ENABLED only after OIDC and Environment approval are configured' >&2; exit 1; }
+          test "$GITHUB_REF" = 'refs/heads/main' || { echo 'Dispatch must target main' >&2; exit 1; }
+          node npm/scripts/check-release-version.cjs "$VERSION"
+          node npm/scripts/write-release-notes.cjs
+          cargo metadata --locked --no-deps --format-version 1 > /dev/null
+          node npm/scripts/check-release-ref.cjs "$VERSION"
+          node npm/scripts/release-registry.cjs absent "$VERSION"
+          printf 'Release candidate: %s at %s\n' "$VERSION" "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+  binaries:
+    needs: preflight
+    permissions:
+      contents: read
+    uses: ./.github/workflows/npm-binaries.yml
+    with:
+      version: ${{ inputs.version }}
+
+  publish:
+    needs: [preflight, binaries]
+    runs-on: ubuntu-26.04
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 12.3.4
+      - uses: actions/download-artifact@v7
+        with:
+          name: npm-package
+          path: npm-package
+      - shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          node npm/scripts/check-release-ref.cjs "$VERSION"
+          node npm/scripts/check-release-version.cjs "$VERSION"
+          (cd npm-package && sha256sum -c "deordinal-$VERSION.tgz.sha256")
+          node npm/scripts/verify-tarball.cjs "npm-package/deordinal-$VERSION.tgz"
+          node npm/scripts/release-registry.cjs absent "$VERSION"
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: crates-auth
+      - run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
+      - shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: pnpm publish "npm-package/deordinal-$VERSION.tgz" --access public --provenance --no-git-checks
+      - shell: bash
+        timeout-minutes: 7
+        env:
+          VERSION: ${{ inputs.version }}
+        run: node npm/scripts/release-registry.cjs visible "$VERSION" "npm-package/deordinal-$VERSION.tgz"
+
+  github-release:
+    needs: publish
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+      - shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node npm/scripts/check-release-ref.cjs "$VERSION"
+          node npm/scripts/write-release-notes.cjs
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "v$VERSION" -m "deordinal v$VERSION" "$GITHUB_SHA"
+          git push origin "refs/tags/v$VERSION"
+          gh release create "v$VERSION" --verify-tag --title "deordinal v$VERSION" --notes-file release-notes.md
