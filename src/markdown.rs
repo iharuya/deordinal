@@ -274,9 +274,7 @@ mod tests {
         let src = "1. first\n2. second\n   1. nested\n   2. nested\n3. third\n";
         let ds = hits(src);
         assert_eq!(
-            ds.iter()
-                .filter(|d| d.rule == "deordinal/ordered-list")
-                .count(),
+            ds.iter().filter(|d| d.rule == "ordered-list").count(),
             2,
             "{ds:?}"
         );
@@ -310,7 +308,7 @@ mod tests {
         let src = "<!-- deordinal-ignore-start: 必須 -->\r\n# Step 1\r\n<!-- deordinal-ignore -->\r\n<!-- deordinal-ignore-end -->\r\n# Phase A\r\n";
         let ds = hits(src);
         assert_eq!(ds.len(), 2, "{ds:?}");
-        assert_eq!(ds[0].rule, "deordinal/ignore");
+        assert_eq!(ds[0].rule, "ignore");
         assert_eq!(line_column(src, ds[1].start), (5, 3));
     }
 
@@ -336,12 +334,12 @@ mod tests {
             "<!-- deordinal-ignore-start: 手順 -->\n<!-- deordinal-ignore-end -->\n# Step 1\n";
         let ds = hits(adjacent);
         assert_eq!(ds.len(), 1, "{ds:?}");
-        assert_eq!(ds[0].rule, "deordinal/keyword-prefix");
+        assert_eq!(ds[0].rule, "keyword-prefix");
 
         let multiline = "<!-- deordinal-ignore-start: 手順\n-->\n# Step 1\n";
         let ds = hits(multiline);
         assert_eq!(ds.len(), 2, "{ds:?}");
-        assert_eq!(ds[0].rule, "deordinal/ignore");
+        assert_eq!(ds[0].rule, "ignore");
     }
 
     #[test]
@@ -349,7 +347,7 @@ mod tests {
         let src = "> 1. first\n> 2. second\n\n- Step 1\n- 1: note\n";
         let ds = hits(src);
         assert_eq!(ds.len(), 3, "{ds:?}");
-        assert_eq!(ds[0].rule, "deordinal/ordered-list");
+        assert_eq!(ds[0].rule, "ordered-list");
         assert_eq!(line_column(src, ds[0].start), (1, 3));
     }
 

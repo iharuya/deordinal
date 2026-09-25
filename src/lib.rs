@@ -32,7 +32,7 @@ impl Diagnostic {
 
     fn error(message: &str, start: usize, end: usize) -> Self {
         Self {
-            rule: "deordinal/ignore",
+            rule: "ignore",
             message: message.into(),
             start,
             end,
@@ -106,6 +106,22 @@ pub(crate) fn physical_lines(source: &str) -> impl Iterator<Item = (usize, &str)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diagnostic_rules_use_public_names() {
+        let diagnostics = check(
+            "# 1. 概要\n\n1. first\n2. second\n# Step 1\n<!-- deordinal-ignore -->\n",
+            Language::Markdown,
+        );
+        let rules: Vec<_> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.rule)
+            .collect();
+        assert_eq!(
+            rules,
+            ["prefix", "ordered-list", "keyword-prefix", "ignore"]
+        );
+    }
 
     #[test]
     fn unicode_column_and_crlf() {

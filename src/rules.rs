@@ -4,9 +4,9 @@ use regex::Regex;
 
 use crate::Diagnostic;
 
-const ORDERED_LIST: &str = "deordinal/ordered-list";
-const ORDINAL_PREFIX: &str = "deordinal/ordinal-prefix";
-const KEYWORD_PREFIX: &str = "deordinal/keyword-prefix";
+const ORDERED_LIST: &str = "ordered-list";
+const PREFIX: &str = "prefix";
+const KEYWORD_PREFIX: &str = "keyword-prefix";
 
 const KEYWORDS: &[&str] = &[
     "step",
@@ -49,10 +49,10 @@ pub(crate) fn check_line(line: &str, start: usize, diagnostics: &mut Vec<Diagnos
     let found = if let Some(label) = KEYWORD.find(text) {
         Some((KEYWORD_PREFIX, "先頭に段階ラベルがあります", label.end()))
     } else if let Some(label) = BRACKETED.find(text) {
-        Some((ORDINAL_PREFIX, "先頭に順序ラベルがあります", label.end()))
+        Some((PREFIX, "先頭に順序ラベルがあります", label.end()))
     } else if let Some(label) = NUMBER.captures(text).filter(|m| numbered_label(text, m)) {
         Some((
-            ORDINAL_PREFIX,
+            PREFIX,
             "先頭に順序ラベルがあります",
             label.get(0).unwrap().end(),
         ))
@@ -60,7 +60,7 @@ pub(crate) fn check_line(line: &str, start: usize, diagnostics: &mut Vec<Diagnos
         LETTER
             .find(text)
             .or_else(|| CIRCLED.find(text))
-            .map(|label| (ORDINAL_PREFIX, "先頭に順序ラベルがあります", label.end()))
+            .map(|label| (PREFIX, "先頭に順序ラベルがあります", label.end()))
     };
     if let Some((rule, message, len)) = found {
         let end = start + text[..len].trim_end_matches([' ', '\t']).len();
@@ -150,7 +150,7 @@ mod tests {
             "㊿ 項目",
             "一、 はじめに",
         ] {
-            assert_eq!(rule(case), Some(ORDINAL_PREFIX), "{case}");
+            assert_eq!(rule(case), Some(PREFIX), "{case}");
         }
     }
 

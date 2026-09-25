@@ -197,7 +197,7 @@ mod tests {
         let src = "// deordinal-ignore-start: reason\n// Step 1\n// deordinal-ignore-end\n";
         let hits = check(src, Language::JavaScript);
         assert_eq!(hits.len(), 1, "{hits:?}");
-        assert_eq!(hits[0].rule, "deordinal/keyword-prefix");
+        assert_eq!(hits[0].rule, "keyword-prefix");
     }
 
     #[test]

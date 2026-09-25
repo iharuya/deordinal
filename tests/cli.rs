@@ -38,7 +38,10 @@ fn exit_codes_and_locations() {
     fs::write(dir.path().join("readme.md"), "# Step 1\n").unwrap();
     let warning = run(dir.path(), &["check", "readme.md"]);
     assert_eq!(warning.status.code(), Some(1));
-    assert!(stdout(&warning).contains("readme.md:1:3: deordinal/keyword-prefix:"));
+    assert_eq!(
+        stdout(&warning),
+        "✖ readme.md:1:3: keyword-prefix: 先頭に段階ラベルがあります\n"
+    );
 
     fs::write(dir.path().join("readme.md"), "# タイトル\n").unwrap();
     let clean = run(dir.path(), &["check", "readme.md"]);
@@ -61,7 +64,7 @@ fn exit_codes_and_locations() {
     let error = run(dir.path(), &["check", "readme.md"]);
     assert_eq!(error.status.code(), Some(2));
     assert!(
-        stderr(&error).contains("deordinal/ignore"),
+        stderr(&error).starts_with("✖ readme.md:1:1: ignore: "),
         "{}",
         stderr(&error)
     );
@@ -70,6 +73,22 @@ fn exit_codes_and_locations() {
     let utf8 = run(dir.path(), &["check", "readme.md"]);
     assert_eq!(utf8.status.code(), Some(2));
     assert!(stderr(&utf8).contains("UTF-8"));
+}
+
+#[test]
+fn diagnostic_rule_names_and_locations_match_the_cli_output() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join("guide.md"),
+        "# 1. 概要\n\n1. first\n2. second\n",
+    )
+    .unwrap();
+    let output = run(dir.path(), &["check", "guide.md"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        stdout(&output),
+        "✖ guide.md:1:3: prefix: 先頭に順序ラベルがあります\n✖ guide.md:3:1: ordered-list: 番号付きリストを使用しています\n"
+    );
 }
 
 #[test]
@@ -167,7 +186,7 @@ fn verbose_lists_checked_files_and_summary_without_changing_exit_code() {
         assert_eq!(lines.len(), 4, "{out}");
         assert!(lines[0].starts_with("a.md:"));
         assert_counts(lines[0], 0, 0);
-        assert!(lines[1].starts_with("b.ts:1:4: deordinal/keyword-prefix:"));
+        assert!(lines[1].starts_with("✖ b.ts:1:4: keyword-prefix:"));
         assert!(lines[2].starts_with("b.ts:"));
         assert_counts(lines[2], 1, 0);
         assert_summary(lines[3], 2, 1, 0);
@@ -293,13 +312,10 @@ fn jsonc_config_filters_explicit_and_discovered_files() {
     assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
     let out = stdout(&output);
     assert!(
-        out.contains("scripts/run.py:1:3: deordinal/keyword-prefix"),
+        out.contains("✖ scripts/run.py:1:3: keyword-prefix"),
         "{out}"
     );
-    assert!(
-        out.contains("src/app.md:1:3: deordinal/keyword-prefix"),
-        "{out}"
-    );
+    assert!(out.contains("✖ src/app.md:1:3: keyword-prefix"), "{out}");
     assert!(!out.contains("generated.ts"), "{out}");
     assert!(!out.contains("dist/"), "{out}");
     let summary = out.lines().last().unwrap();

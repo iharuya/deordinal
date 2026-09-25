@@ -202,7 +202,7 @@ fn run_check(paths: &[PathBuf], verbose: bool) -> ExitCode {
                 });
             } else {
                 file_warnings += 1;
-                println!("{}:{line}:{column}: {message}", path.display());
+                println!("✖ {}:{line}:{column}: {message}", path.display());
             }
         }
         warnings += file_warnings;
@@ -221,7 +221,11 @@ fn run_check(paths: &[PathBuf], verbose: bool) -> ExitCode {
     }
     errors.sort();
     for error in &errors {
-        eprintln!("{}", error.display());
+        if error.line == 0 {
+            eprintln!("{}", error.display());
+        } else {
+            eprintln!("✖ {}", error.display());
+        }
     }
     if !errors.is_empty() {
         ExitCode::from(2)
