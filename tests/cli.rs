@@ -86,8 +86,61 @@ fn diagnostic_rule_names_and_locations_match_the_cli_output() {
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         stdout(&output),
-        "✖ guide.md:1:3: prefix: Leading ordering label\n✖ guide.md:3:1: ordered-list: Ordered list used\n"
+        "✖ guide.md:1:3: prefix: Leading ordering label\n✖ guide.md:3:1: ordered-list: Ordered list used\nHint: Re-run this check with `--write --unsafe` to apply supported fixes (review the diff).\n"
     );
+}
+
+#[test]
+fn groups_repeated_warnings_without_losing_locations_or_counts() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join("repeated.md"),
+        "# 1. Start\n# (1) Continue\n# ① End\n# Step 1\n1. first\n2. second\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("second.md"), "# 1. Else\n").unwrap();
+
+    let output = run(dir.path(), &["check", "repeated.md", "second.md", "-v"]);
+    assert_eq!(output.status.code(), Some(1));
+    let out = stdout(&output);
+    assert!(out.contains("✖ repeated.md:1:3: prefix: Leading ordering label (3 occurrences)\n  also at 2:3, 3:3\n"), "{out}");
+    assert!(out.contains("✖ repeated.md:4:3: keyword-prefix: Leading phase label\n"));
+    assert!(out.contains("✖ repeated.md:5:1: ordered-list: Ordered list used\n"));
+    assert!(out.contains("✖ second.md:1:3: prefix: Leading ordering label\n"));
+    assert_eq!(out.matches("Hint:").count(), 1);
+    assert_summary(out.lines().last().unwrap(), 2, 6, 0);
+}
+
+#[test]
+fn fix_hint_requires_an_applicable_edit() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join("unsupported.md"),
+        "# Step 1\n# Phase A\n1. first\n2. second\n",
+    )
+    .unwrap();
+    let unsupported = run(dir.path(), &["check", "unsupported.md"]);
+    assert_eq!(unsupported.status.code(), Some(1));
+    let out = stdout(&unsupported);
+    assert!(
+        out.contains("keyword-prefix: Leading phase label (2 occurrences)\n  also at 2:3\n"),
+        "{out}"
+    );
+    assert!(!out.contains("Hint:"));
+
+    fs::write(dir.path().join("blocked.md"), "1: ---\n").unwrap();
+    let blocked = run(dir.path(), &["check", "blocked.md"]);
+    assert_eq!(blocked.status.code(), Some(1));
+    assert!(!stdout(&blocked).contains("Hint:"));
+
+    fs::write(
+        dir.path().join("invalid.md"),
+        "# Step 1: Title\n<!-- deordinal-ignore -->\n",
+    )
+    .unwrap();
+    let invalid = run(dir.path(), &["check", "invalid.md"]);
+    assert_eq!(invalid.status.code(), Some(2));
+    assert!(!stdout(&invalid).contains("Hint:"));
 }
 
 #[test]
@@ -228,9 +281,10 @@ fn discovery_gitignore_explicit_files_and_stable_order() {
     let output = run(dir.path(), &["check"]);
     assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
     let out = stdout(&output);
-    assert_eq!(out.lines().count(), 3, "{out}");
+    assert_eq!(out.lines().count(), 4, "{out}");
     assert!(out.find("a.py").unwrap() < out.find("z.md").unwrap());
-    assert!(out.find("z.md:1:").unwrap() < out.find("z.md:2:").unwrap());
+    assert!(out.contains("z.md:1:3: keyword-prefix: Leading phase label (2 occurrences)"));
+    assert!(out.contains("also at 2:3"));
 
     let explicit = run(dir.path(), &["check", "ignored.md"]);
     assert_eq!(explicit.status.code(), Some(1));
@@ -442,6 +496,7 @@ fn write_rechecks_files_and_reports_only_remaining_warnings() {
     );
     assert_eq!(stdout(&output).matches("✖ ").count(), 1);
     assert_eq!(stdout(&output).matches("Applied fixes").count(), 2);
+    assert!(!stdout(&output).contains("Hint:"));
     assert!(stdout(&output).contains("guide.md:2:1: ordered-list"));
     assert_summary(stdout(&output).lines().last().unwrap(), 2, 1, 0);
     let again = run(dir.path(), &["check", "--write", "--unsafe"]);
@@ -495,6 +550,21 @@ fn write_respects_configuration_for_explicit_paths() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(fs::read_to_string(included).unwrap(), "# Inside\n");
     assert_eq!(fs::read_to_string(excluded).unwrap(), "# Step 1: Outside\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn check_does_not_suggest_writing_through_a_symlink() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempdir().unwrap();
+    let real = dir.path().join("real.md");
+    fs::write(&real, "# Step 1: Title\n").unwrap();
+    symlink(&real, dir.path().join("alias.md")).unwrap();
+    let output = run(dir.path(), &["check", "alias.md"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stdout(&output).contains("alias.md:1:3: keyword-prefix"));
+    assert!(!stdout(&output).contains("Hint:"));
 }
 
 #[cfg(unix)]

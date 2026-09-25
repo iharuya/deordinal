@@ -7,12 +7,14 @@ use std::{
 };
 
 use clap::{Parser, Subcommand};
-use deordinal::{Language, LineIndex, Severity, check, fix_unsafe};
+use deordinal::{Language, Severity, check, fix_unsafe};
 use ignore::WalkBuilder;
 use tempfile::NamedTempFile;
 
 mod config;
+mod report;
 use config::Config;
+use report::{ErrorReport, FileReport};
 
 #[derive(Parser)]
 #[command(version, about = "Detect ordering labels in prose and code comments")]
@@ -37,39 +39,6 @@ enum Command {
         #[arg(value_name = "PATH", default_value = ".")]
         path: PathBuf,
     },
-}
-
-#[derive(Eq, PartialEq, Ord, PartialOrd)]
-struct ErrorReport {
-    path: PathBuf,
-    line: usize,
-    column: usize,
-    message: String,
-}
-
-impl ErrorReport {
-    fn path(path: &Path, message: impl ToString) -> Self {
-        Self {
-            path: path.to_owned(),
-            line: 0,
-            column: 0,
-            message: message.to_string(),
-        }
-    }
-
-    fn display(&self) -> String {
-        if self.line == 0 {
-            format!("{}: {}", self.path.display(), self.message)
-        } else {
-            format!(
-                "{}:{}:{}: {}",
-                self.path.display(),
-                self.line,
-                self.column,
-                self.message
-            )
-        }
-    }
 }
 
 fn normalize(path: &Path) -> PathBuf {
@@ -179,6 +148,7 @@ fn run_check(paths: &[PathBuf], verbose: bool, write: bool) -> ExitCode {
     let (files, mut errors) = discover(paths, &config);
     let mut checked_files = 0;
     let mut warnings = 0;
+    let mut has_unsafe_fixes = false;
     for path in files {
         let Some(language) = Language::from_path(&path) else {
             continue;
@@ -220,33 +190,31 @@ fn run_check(paths: &[PathBuf], verbose: bool, write: bool) -> ExitCode {
                 Err(err) => errors.push(ErrorReport::path(&path, err)),
             }
         }
-        let checked_source = written.as_deref().unwrap_or(&source);
-        let lines = LineIndex::new(checked_source);
-        let mut file_warnings = 0;
-        let mut file_errors = 0;
-        for diagnostic in diagnostics {
-            let (line, column) = lines.line_column(checked_source, diagnostic.start);
-            let message = format!("{}: {}", diagnostic.rule, diagnostic.message);
-            if diagnostic.severity == Severity::Error {
-                file_errors += 1;
-                errors.push(ErrorReport {
-                    path: path.clone(),
-                    line,
-                    column,
-                    message,
-                });
-            } else {
-                file_warnings += 1;
-                println!("✖ {}:{line}:{column}: {message}", path.display());
-            }
+        if !write
+            && !has_unsafe_fixes
+            && diagnostics.iter().any(|d| d.severity == Severity::Warning)
+            && fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file())
+        {
+            has_unsafe_fixes = fix_unsafe(&source, language).is_some();
         }
+        let checked_source = written.as_deref().unwrap_or(&source);
+        let report = FileReport::new(&path, checked_source, diagnostics);
+        let file_warnings = report.warning_count();
+        let file_errors = report.error_count();
+        report.print_warnings(&path);
         warnings += file_warnings;
+        errors.extend(report.into_errors());
         if verbose {
             println!(
                 "{}: checked ({file_warnings} warnings, {file_errors} errors)",
                 path.display()
             );
         }
+    }
+    if has_unsafe_fixes {
+        println!(
+            "Hint: Re-run this check with `--write --unsafe` to apply supported fixes (review the diff)."
+        );
     }
     if verbose {
         println!(

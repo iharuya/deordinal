@@ -11,6 +11,9 @@ deordinal check README.md src  # check the specified files and directories
 deordinal check -v             # show results for files without diagnostics
 ```
 
+Autofix is experimental: rerun the same `check` command with `--write --unsafe` to apply supported edits.
+Review the diff before committing; unsupported diagnostics remain unchanged.
+
 Supported files: `.md`, `.js` / `.jsx` / `.mjs` / `.cjs`, `.ts` / `.tsx` / `.mts` / `.cts`, `.py` / `.pyi`
 
 ## Default rules
