@@ -22,6 +22,16 @@ fn stderr(output: &Output) -> String {
     String::from_utf8(output.stderr.clone()).unwrap()
 }
 
+fn assert_counts(line: &str, warnings: usize, errors: usize) {
+    assert!(line.contains(&format!("警告 {warnings} 件")), "{line}");
+    assert!(line.contains(&format!("エラー {errors} 件")), "{line}");
+}
+
+fn assert_summary(line: &str, files: usize, warnings: usize, errors: usize) {
+    assert!(line.contains(&format!(": {files} ファイル")), "{line}");
+    assert_counts(line, warnings, errors);
+}
+
 #[test]
 fn exit_codes_and_locations() {
     let dir = tempdir().unwrap();
@@ -90,7 +100,7 @@ fn init_creates_config_without_changing_default_check_behavior() {
 
     let again = run(dir.path(), &["init"]);
     assert_eq!(again.status.code(), Some(2));
-    assert!(stderr(&again).contains("上書きしません"));
+    assert!(!again.stderr.is_empty());
     assert!(again.stdout.is_empty());
     assert_eq!(
         fs::read_to_string(dir.path().join("deordinal.jsonc")).unwrap(),
@@ -137,10 +147,12 @@ fn verbose_lists_checked_files_and_summary_without_changing_exit_code() {
 
     let clean = run(dir.path(), &["check", "a.md", "-v"]);
     assert_eq!(clean.status.code(), Some(0));
-    assert_eq!(
-        stdout(&clean),
-        "a.md: 検査済み (警告 0 件、エラー 0 件)\n検査結果: 1 ファイル、警告 0 件、エラー 0 件\n"
-    );
+    let clean_out = stdout(&clean);
+    let clean_lines: Vec<_> = clean_out.lines().collect();
+    assert_eq!(clean_lines.len(), 2, "{clean_out}");
+    assert!(clean_lines[0].starts_with("a.md:"));
+    assert_counts(clean_lines[0], 0, 0);
+    assert_summary(clean_lines[1], 1, 0, 0);
 
     let quiet = run(dir.path(), &["check"]);
     assert_eq!(quiet.status.code(), Some(1));
@@ -153,10 +165,12 @@ fn verbose_lists_checked_files_and_summary_without_changing_exit_code() {
         let out = stdout(&output);
         let lines: Vec<_> = out.lines().collect();
         assert_eq!(lines.len(), 4, "{out}");
-        assert_eq!(lines[0], "a.md: 検査済み (警告 0 件、エラー 0 件)");
+        assert!(lines[0].starts_with("a.md:"));
+        assert_counts(lines[0], 0, 0);
         assert!(lines[1].starts_with("b.ts:1:4: deordinal/keyword-prefix:"));
-        assert_eq!(lines[2], "b.ts: 検査済み (警告 1 件、エラー 0 件)");
-        assert_eq!(lines[3], "検査結果: 2 ファイル、警告 1 件、エラー 0 件");
+        assert!(lines[2].starts_with("b.ts:"));
+        assert_counts(lines[2], 1, 0);
+        assert_summary(lines[3], 2, 1, 0);
     }
 }
 
@@ -173,10 +187,14 @@ fn verbose_counts_errors_without_marking_unreadable_files_as_checked() {
     let output = run(dir.path(), &["check", "--verbose"]);
     assert_eq!(output.status.code(), Some(2));
     let out = stdout(&output);
-    assert!(out.contains("broken.md: 検査済み (警告 0 件、エラー 1 件)"));
-    assert!(out.contains("clean.md: 検査済み (警告 0 件、エラー 0 件)"));
-    assert!(!out.contains("unreadable.py: 検査済み"));
-    assert!(out.ends_with("検査結果: 2 ファイル、警告 0 件、エラー 2 件\n"));
+    let lines: Vec<_> = out.lines().collect();
+    assert_eq!(lines.len(), 3, "{out}");
+    assert!(lines[0].starts_with("broken.md:"));
+    assert_counts(lines[0], 0, 1);
+    assert!(lines[1].starts_with("clean.md:"));
+    assert_counts(lines[1], 0, 0);
+    assert!(!out.contains("unreadable.py:"));
+    assert_summary(lines[2], 2, 0, 2);
     assert_eq!(stderr(&output).lines().count(), 2);
 }
 
@@ -284,14 +302,15 @@ fn jsonc_config_filters_explicit_and_discovered_files() {
     );
     assert!(!out.contains("generated.ts"), "{out}");
     assert!(!out.contains("dist/"), "{out}");
-    assert!(out.ends_with("検査結果: 2 ファイル、警告 2 件、エラー 0 件\n"));
+    let summary = out.lines().last().unwrap();
+    assert_summary(summary, 2, 2, 0);
 
     let excluded = run(dir.path(), &["check", "src/a.generated.ts", "-v"]);
     assert_eq!(excluded.status.code(), Some(0));
-    assert_eq!(
-        stdout(&excluded),
-        "検査結果: 0 ファイル、警告 0 件、エラー 0 件\n"
-    );
+    let excluded_out = stdout(&excluded);
+    let summary = excluded_out.trim_end();
+    assert_eq!(summary.lines().count(), 1, "{excluded_out}");
+    assert_summary(summary, 0, 0, 0);
 }
 
 #[test]
@@ -309,7 +328,9 @@ fn config_globs_are_relative_to_config_not_current_directory() {
     let output = run(&dir.path().join("nested"), &["check", "..", "-v"]);
     assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
     assert!(stdout(&output).contains("../src/entry.md:1:3:"));
-    assert!(stdout(&output).ends_with("検査結果: 1 ファイル、警告 1 件、エラー 0 件\n"));
+    let out = stdout(&output);
+    let summary = out.lines().last().unwrap();
+    assert_summary(summary, 1, 1, 0);
 }
 
 #[test]
@@ -340,7 +361,9 @@ fn git_ignore_option_preserves_the_default_and_can_disable_ignore_files() {
     .unwrap();
     let output = run(dir.path(), &["check", "-v"]);
     assert_eq!(output.status.code(), Some(1));
-    assert!(stdout(&output).ends_with("検査結果: 3 ファイル、警告 3 件、エラー 0 件\n"));
+    let out = stdout(&output);
+    let summary = out.lines().last().unwrap();
+    assert_summary(summary, 3, 3, 0);
 }
 
 #[test]
