@@ -1,8 +1,8 @@
 {
   "name": "deordinal",
   "version": "0.2.2",
-  "description": "Detect and remove unnecessary ordering labels in documentation and comments.",
-  "keywords": ["code-quality", "linter", "markdown", "formatter", "documentation"],
+  "description": "Detect and remove unnecessary ordering labels in Markdown and code comments.",
+  "keywords": ["code-quality", "linter", "formatter", "documentation", "comments"],
   "license": "MIT",
   "repository": {
     "type": "git",

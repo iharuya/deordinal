@@ -1,6 +1,10 @@
 # deordinal
 
-A CLI that detects unnecessary ordering labels in documentation and code comments.
+![Before and after: deordinal removes step numbers from JavaScript comments without changing the code](https://raw.githubusercontent.com/iharuya/deordinal/main/assets/what-is-this.png)
+
+**Remove the numbers. Make room for change.**
+
+When code changes, numbered comments fall out of sync. deordinal detects unnecessary ordering in Markdown and code comments and can remove supported labels without changing the code itself.
 
 ```sh
 pnpm add -D deordinal

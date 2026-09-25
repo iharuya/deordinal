@@ -2,7 +2,7 @@
 name = "deordinal"
 version = "0.2.2"
 edition = "2024"
-description = "Detect and remove unnecessary ordering labels in documentation and comments."
+description = "Detect and remove unnecessary ordering labels in Markdown and code comments."
 license = "MIT"
 repository = "https://github.com/iharuya/deordinal"
 readme = "README.md"

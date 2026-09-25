@@ -1,6 +1,10 @@
 # deordinal
 
-A CLI that best-effort detects and removes ordering labels in prose and code comments.
+![Before and after: deordinal removes step numbers from JavaScript comments without changing the code](assets/what-is-this.png)
+
+**Remove the numbers. Make room for change.**
+
+LLMs often add `Step 1`, `Step 2`, and `Step 3` to comments and documentation. When things change, those labels fall out of sync and make simple edits harder. deordinal detects unnecessary ordering in Markdown and code comments, and can remove supported labels without changing the code itself.
 
 ## Installation
 
@@ -11,7 +15,7 @@ Global install: `cargo install deordinal --locked`
 ## CLI usage
 
 ```sh
-cd to_project
+cd your-project
 deordinal init                 # create a configuration file
 deordinal check                # recursively check the current directory
 deordinal check README.md src  # check the specified files and directories
@@ -28,7 +32,7 @@ Supported files: `.md`, `.js` / `.jsx` / `.mjs` / `.cjs`, `.ts` / `.tsx` / `.mts
 - `prefix`: Detects labels at the start of prose, such as `1. Overview`, `1: Overview`, `A) Overview`, `(1) Overview`, and `① Overview`.
 - `keyword-prefix`: Detects labels at the start of prose, such as `Step 1` and `Phase A`. Headings containing only a label are also checked.
 
-Some expressions that look like numbers with units, years, or versions are excluded, but the tool does not determine whether ordering is necessary based on meaning. References within sentences are not checked.
+Numbers with units, years, or versions are generally excluded. deordinal does not decide whether ordering is meaningful; it checks leading labels, not references within sentences.
 
 ## Configuration
 
@@ -36,7 +40,7 @@ Specify target files with `glob` patterns; use `!` to exclude files.
 
 See the [JSON Schema](./configuration_schema.json) for details.
 
-## Markdown ignores
+## How to suppress in markdown
 
 For ordering that is necessary, use a reasoned range or file ignore directive in a standalone HTML comment.
 

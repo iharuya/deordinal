@@ -2,7 +2,7 @@
 
 LLMs tend to add numbered or phased labels such as `1.`, `2.`, `Phase A`, and `Step 1` without much reason. This kind of ordering can create unnecessary maintenance costs and constraints when items are later added, removed, or rearranged.
 
-A Biome-like tool that detects and warns about or removes ordering in source-code comments, documentation, configuration files, and more—not just Markdown.
+Deordinal is a [Biome](https://github.com/biomejs/biome)-like tool that detects and warns about or removes ordering in source-code comments, documentation, configuration files.
 
 ## Detection principles
 
