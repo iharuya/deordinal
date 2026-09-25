@@ -4,14 +4,13 @@ A CLI that best-effort detects and removes ordering labels in prose and code com
 
 ## Installation
 
-```sh
-cargo install deordinal
-```
+In JS/TS project: `pnpm add -D deordinal`
+Global install: `cargo install deordinal --locked`
 
 ## CLI usage
 
 ```sh
-cd project_path
+cd to_project
 deordinal init                 # create a configuration file
 deordinal check                # recursively check the current directory
 deordinal check README.md src  # check the specified files and directories

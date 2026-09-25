@@ -1,0 +1,22 @@
+{
+  "name": "deordinal",
+  "version": "0.2.1",
+  "description": "Detect and remove unnecessary ordering labels in documentation and comments.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iharuya/deordinal.git"
+  },
+  "bin": {
+    "deordinal": "bin/deordinal.cjs"
+  },
+  "files": [
+    "bin/",
+    "vendor/",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "prepack": "node scripts/verify-package.cjs"
+  }
+}

@@ -1,0 +1,35 @@
+name: npm binaries
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: darwin-arm64
+            binary: deordinal
+          - runner: macos-15-intel
+            platform: darwin-x64
+            binary: deordinal
+          - runner: ubuntu-22.04
+            platform: linux-x64
+            binary: deordinal
+          - runner: windows-2022
+            platform: win32-x64
+            binary: deordinal.exe
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release --locked
+      - run: node npm/scripts/check-binary.cjs target/release/${{ matrix.binary }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deordinal-${{ matrix.platform }}
+          path: target/release/${{ matrix.binary }}
+          if-no-files-found: error
+          retention-days: 7
