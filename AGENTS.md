@@ -28,4 +28,4 @@ some instructions
 - `cargo test`
 - `cargo clippy --all-targets -- -D warnings`
 - Keep `README.md` in English and under 100 lines for human readers. Omit details or refer to another file instead.
-- `cargo install --path .` to test manually
+- Test each worktree with `cargo run -- check --help` (or its own `target/debug/deordinal`); avoid `cargo install --path .`, which replaces the shared global binary.
