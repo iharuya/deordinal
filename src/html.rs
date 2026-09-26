@@ -93,8 +93,7 @@ mod tests {
 
     #[test]
     fn multiline_comments_and_locations() {
-        let source =
-            "<!--\r\n  1. 準備\r\n  * Phase A: 実行\r\n  * 2. 確認\r\n-->\r\n<!-- ① 終了 -->\r\n";
+        let source = "<!--\r\n  1. Prepare\r\n  * Phase A: Execute\r\n  * 2. Verify\r\n-->\r\n<!-- ① Finish -->\r\n";
         let diagnostics = hits(source);
         assert_eq!(diagnostics.len(), 4, "{diagnostics:?}");
         let index = LineIndex::new(source);
@@ -109,9 +108,8 @@ mod tests {
 
     #[test]
     fn fixes_only_comment_content() {
-        let source = "<!-- Step 1: setup -->\r\n<!--\r\n * 1. 準備\r\n * Phase A: 実行\r\n-->\r\n<h1>Step 3: title</h1>\r\n";
-        let expected =
-            "<!-- setup -->\r\n<!--\r\n * 準備\r\n * 実行\r\n-->\r\n<h1>Step 3: title</h1>\r\n";
+        let source = "<!-- Step 1: setup -->\r\n<!--\r\n * 1. Prepare\r\n * Phase A: Execute\r\n-->\r\n<h1>Step 3: title</h1>\r\n";
+        let expected = "<!-- setup -->\r\n<!--\r\n * Prepare\r\n * Execute\r\n-->\r\n<h1>Step 3: title</h1>\r\n";
         assert_eq!(
             fix_unsafe(source, Language::Html).as_deref(),
             Some(expected)
