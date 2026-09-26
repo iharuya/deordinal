@@ -331,10 +331,45 @@ fn all_supported_extensions_and_non_target_files() {
         fs::write(dir.path().join(format!("a.{ext}")), content).unwrap();
     }
     fs::write(dir.path().join("a.md"), "# Step 1\n").unwrap();
+    fs::write(dir.path().join("a.html"), "<!-- Step 1 -->\n").unwrap();
+    fs::write(dir.path().join("a.htm"), "<!-- Step 1 -->\n").unwrap();
     fs::write(dir.path().join("a.mdx"), "# Step 1\n").unwrap();
     let output = run(dir.path(), &["check"]);
-    assert_eq!(stdout(&output).lines().count(), 11, "{}", stdout(&output));
+    assert_eq!(stdout(&output).lines().count(), 13, "{}", stdout(&output));
     assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn html_comments_are_checked_and_fixed_without_touching_markup() {
+    let dir = tempdir().unwrap();
+    let html = dir.path().join("index.html");
+    let source = "\u{feff}<h1>Step 1: title</h1>\r\n<!-- deordinal-ignore-file: not supported -->\r\n<!-- Step 1: setup -->\r\n<!--\r\n * ① 準備\r\n * Phase A: 実行\r\n-->\r\n<!-- Step 2 -->\r\n<script>const s = '<!-- Step 3: literal -->';</script>\r\n";
+    fs::write(&html, source).unwrap();
+    let checked = run(dir.path(), &["check", "index.html"]);
+    assert_eq!(checked.status.code(), Some(1));
+    assert_eq!(stderr(&checked), "");
+    assert_eq!(
+        stdout(&checked),
+        "✖ index.html:3:6: keyword-prefix: Leading phase label (3 occurrences)\n  also at 6:4, 8:6\n✖ index.html:5:4: prefix: Leading ordering label\nHint: Re-run this check with `--write --unsafe` to apply supported fixes (review the diff).\n"
+    );
+
+    let fixed = run(dir.path(), &["check", "--write", "--unsafe", "index.html"]);
+    assert_eq!(fixed.status.code(), Some(1));
+    assert_eq!(
+        stdout(&fixed),
+        "✔ Applied fixes to index.html\n✖ index.html:8:6: keyword-prefix: Leading phase label\n"
+    );
+    let expected = source
+        .replace("<!-- Step 1: setup -->", "<!-- setup -->")
+        .replace("* ① 準備", "* 準備")
+        .replace("* Phase A: 実行", "* 実行");
+    assert_eq!(fs::read_to_string(&html).unwrap(), expected);
+    let again = run(dir.path(), &["check", "--write", "--unsafe", "index.html"]);
+    assert_eq!(again.status.code(), Some(1));
+    assert_eq!(
+        stdout(&again),
+        "✖ index.html:8:6: keyword-prefix: Leading phase label\n"
+    );
 }
 
 #[test]

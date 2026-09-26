@@ -4,7 +4,7 @@
 
 **Remove the numbers. Make room for change.**
 
-LLMs often add `Step 1`, `Step 2`, and `Step 3` to comments and documentation. When things change, those labels fall out of sync and make simple edits harder. deordinal detects unnecessary ordering in Markdown and code comments, and can remove supported labels without changing the code itself.
+LLMs often add `Step 1`, `Step 2`, and `Step 3` to comments and documentation. When things change, those labels fall out of sync and make simple edits harder. deordinal detects unnecessary ordering in Markdown, HTML comments, and code comments, and can remove supported labels without changing the code itself.
 
 ## Installation
 
@@ -24,7 +24,7 @@ deordinal check README.md src  # check the specified files and directories
 Autofix is experimental: rerun the same `check` command with `--write --unsafe` to apply supported edits.
 Review the diff before committing; unsupported diagnostics remain unchanged.
 
-Supported files: `.md`, `.js` / `.jsx` / `.mjs` / `.cjs`, `.ts` / `.tsx` / `.mts` / `.cts`, `.py` / `.pyi`
+Supported files: `.md`, `.html` / `.htm` (HTML comments only), `.js` / `.jsx` / `.mjs` / `.cjs`, `.ts` / `.tsx` / `.mts` / `.cts`, `.py` / `.pyi`
 
 ## Default rules
 
@@ -57,4 +57,4 @@ Ignore the entire file:
 <!-- deordinal-ignore-file: This is an ordered operations manual. -->
 ````
 
-Ordering in code comments is not needed, so ignore directives are not supported in them.
+Ignore directives are not supported in HTML or code comments.
