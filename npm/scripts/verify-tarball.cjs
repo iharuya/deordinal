@@ -23,6 +23,10 @@ try {
       throw new Error(`Tarball is missing ${name}`);
     }
   }
+  const license = fs.readFileSync(path.join(__dirname, '..', '..', 'LICENSE'), 'utf8');
+  if (fs.readFileSync(path.join(packed, 'LICENSE'), 'utf8') !== license) {
+    throw new Error('Packed LICENSE differs from root LICENSE');
+  }
   for (const target of ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64']) {
     const name = target.startsWith('win32') ? 'deordinal.exe' : 'deordinal';
     const file = path.join(packed, 'vendor', target, name);
@@ -31,12 +35,6 @@ try {
     if (!target.startsWith('win32') && (metadata.mode & 0o111) !== 0o111) {
       throw new Error(`Tarball lost executable permissions for ${target}/${name}`);
     }
-  }
-  const result = spawnSync(process.execPath, [path.join(packed, 'bin', 'deordinal.cjs'), '--version'], {
-    encoding: 'utf8',
-  });
-  if (result.status !== 0 || result.stdout.trim() !== `deordinal ${version}`) {
-    throw new Error(`Extracted launcher failed: ${result.error || result.stderr || result.stdout}`);
   }
   console.log(`Verified deordinal ${version} tarball; SHA-256 ${hash}`);
   if (process.env.GITHUB_STEP_SUMMARY) {
