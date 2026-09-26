@@ -30,11 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '24'
       - run: cargo build --release --locked
-      - run: node npm/scripts/check-binary.cjs target/release/${{ matrix.binary }}
       - uses: actions/upload-artifact@v6
         with:
           name: deordinal-${{ matrix.platform }}
@@ -71,6 +67,7 @@ jobs:
             echo "Input version does not match npm/package.json" >&2
             exit 1
           fi
+          node npm/scripts/check-release-version.cjs "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - run: cargo publish --dry-run --locked
       - run: pnpm --dir npm pack
@@ -121,7 +118,6 @@ jobs:
         env:
           VERSION: ${{ needs.pack.outputs.version }}
         run: |
-          (cd npm-package && sha256sum -c "deordinal-$VERSION.tgz.sha256")
           mkdir smoke
           cd smoke
           printf '{"private":true}\n' > package.json

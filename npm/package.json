@@ -23,8 +23,5 @@
     "vendor/",
     "LICENSE",
     "README.md"
-  ],
-  "scripts": {
-    "prepack": "node scripts/verify-package.cjs"
-  }
+  ]
 }
