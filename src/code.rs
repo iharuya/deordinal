@@ -8,7 +8,7 @@ pub(crate) fn check(source: &str, language: Language) -> Vec<Diagnostic> {
         Language::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
         Language::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
         Language::Python => tree_sitter_python::LANGUAGE.into(),
-        Language::Markdown => unreachable!(),
+        Language::Markdown | Language::Html => unreachable!(),
     };
     let mut parser = Parser::new();
     parser

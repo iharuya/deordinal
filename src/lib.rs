@@ -1,4 +1,5 @@
 mod code;
+mod html;
 mod markdown;
 mod rules;
 
@@ -47,6 +48,7 @@ impl Diagnostic {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Language {
     Markdown,
+    Html,
     JavaScript,
     Jsx,
     TypeScript,
@@ -58,6 +60,7 @@ impl Language {
     pub fn from_path(path: &Path) -> Option<Self> {
         match path.extension()?.to_str()? {
             "md" => Some(Self::Markdown),
+            "html" | "htm" => Some(Self::Html),
             "js" | "mjs" | "cjs" => Some(Self::JavaScript),
             "jsx" => Some(Self::Jsx),
             "ts" | "mts" | "cts" => Some(Self::TypeScript),
@@ -71,6 +74,7 @@ impl Language {
 pub fn check(source: &str, language: Language) -> Vec<Diagnostic> {
     let mut diagnostics = match language {
         Language::Markdown => markdown::check(source),
+        Language::Html => html::check(source),
         _ => code::check(source, language),
     };
     diagnostics.sort_by(|a, b| a.start.cmp(&b.start).then(a.rule.cmp(b.rule)));
@@ -108,18 +112,26 @@ fn fix_once(source: &str, language: Language) -> Option<String> {
     if accepted.is_empty() {
         return None;
     }
-    if language != Language::Markdown || markdown::same_structure(source, &result) {
+    if preserves_structure(source, &result, language) {
         return Some(result);
     }
     let mut result = source.to_owned();
     for range in accepted {
         let mut candidate = result.clone();
         candidate.replace_range(range, "");
-        if markdown::same_structure(&result, &candidate) {
+        if preserves_structure(&result, &candidate, language) {
             result = candidate;
         }
     }
     (result != source).then_some(result)
+}
+
+fn preserves_structure(before: &str, after: &str, language: Language) -> bool {
+    match language {
+        Language::Markdown => markdown::same_structure(before, after),
+        Language::Html => html::same_structure(before, after),
+        _ => true,
+    }
 }
 
 pub struct LineIndex {

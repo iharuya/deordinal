@@ -43,7 +43,7 @@ fn exit_codes_and_locations() {
         "✖ readme.md:1:3: keyword-prefix: Leading phase label\n"
     );
 
-    fs::write(dir.path().join("readme.md"), "# タイトル\n").unwrap();
+    fs::write(dir.path().join("readme.md"), "# Title\n").unwrap();
     let clean = run(dir.path(), &["check", "readme.md"]);
     assert_eq!(clean.status.code(), Some(0));
     assert!(clean.stdout.is_empty());
@@ -79,7 +79,7 @@ fn diagnostic_rule_names_and_locations_match_the_cli_output() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join("guide.md"),
-        "# 1. 概要\n\n1. first\n2. second\n",
+        "# 1. Overview\n\n1. first\n2. second\n",
     )
     .unwrap();
     let output = run(dir.path(), &["check", "guide.md"]);
@@ -226,7 +226,7 @@ fn version_flags_are_only_available_at_the_root() {
 #[test]
 fn verbose_lists_checked_files_and_summary_without_changing_exit_code() {
     let dir = tempdir().unwrap();
-    fs::write(dir.path().join("a.md"), "# タイトル\n").unwrap();
+    fs::write(dir.path().join("a.md"), "# Title\n").unwrap();
     fs::write(dir.path().join("b.ts"), "// Step 1\n").unwrap();
     fs::write(dir.path().join("c.mdx"), "# Step 2\n").unwrap();
 
@@ -273,7 +273,7 @@ fn verbose_counts_errors_without_marking_unreadable_files_as_checked() {
         "<!-- deordinal-ignore-file -->\n",
     )
     .unwrap();
-    fs::write(dir.path().join("clean.md"), "# 概要\n").unwrap();
+    fs::write(dir.path().join("clean.md"), "# Overview\n").unwrap();
     fs::write(dir.path().join("unreadable.py"), [0xff]).unwrap();
     let output = run(dir.path(), &["check", "--verbose"]);
     assert_eq!(output.status.code(), Some(2));
@@ -331,10 +331,45 @@ fn all_supported_extensions_and_non_target_files() {
         fs::write(dir.path().join(format!("a.{ext}")), content).unwrap();
     }
     fs::write(dir.path().join("a.md"), "# Step 1\n").unwrap();
+    fs::write(dir.path().join("a.html"), "<!-- Step 1 -->\n").unwrap();
+    fs::write(dir.path().join("a.htm"), "<!-- Step 1 -->\n").unwrap();
     fs::write(dir.path().join("a.mdx"), "# Step 1\n").unwrap();
     let output = run(dir.path(), &["check"]);
-    assert_eq!(stdout(&output).lines().count(), 11, "{}", stdout(&output));
+    assert_eq!(stdout(&output).lines().count(), 13, "{}", stdout(&output));
     assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn html_comments_are_checked_and_fixed_without_touching_markup() {
+    let dir = tempdir().unwrap();
+    let html = dir.path().join("index.html");
+    let source = "\u{feff}<h1>Step 1: title</h1>\r\n<!-- deordinal-ignore-file: not supported -->\r\n<!-- Step 1: setup -->\r\n<!--\r\n * ① Prepare\r\n * Phase A: Execute\r\n-->\r\n<!-- Step 2 -->\r\n<script>const s = '<!-- Step 3: literal -->';</script>\r\n";
+    fs::write(&html, source).unwrap();
+    let checked = run(dir.path(), &["check", "index.html"]);
+    assert_eq!(checked.status.code(), Some(1));
+    assert_eq!(stderr(&checked), "");
+    assert_eq!(
+        stdout(&checked),
+        "✖ index.html:3:6: keyword-prefix: Leading phase label (3 occurrences)\n  also at 6:4, 8:6\n✖ index.html:5:4: prefix: Leading ordering label\nHint: Re-run this check with `--write --unsafe` to apply supported fixes (review the diff).\n"
+    );
+
+    let fixed = run(dir.path(), &["check", "--write", "--unsafe", "index.html"]);
+    assert_eq!(fixed.status.code(), Some(1));
+    assert_eq!(
+        stdout(&fixed),
+        "✔ Applied fixes to index.html\n✖ index.html:8:6: keyword-prefix: Leading phase label\n"
+    );
+    let expected = source
+        .replace("<!-- Step 1: setup -->", "<!-- setup -->")
+        .replace("* ① Prepare", "* Prepare")
+        .replace("* Phase A: Execute", "* Execute");
+    assert_eq!(fs::read_to_string(&html).unwrap(), expected);
+    let again = run(dir.path(), &["check", "--write", "--unsafe", "index.html"]);
+    assert_eq!(again.status.code(), Some(1));
+    assert_eq!(
+        stdout(&again),
+        "✖ index.html:8:6: keyword-prefix: Leading phase label\n"
+    );
 }
 
 #[test]
