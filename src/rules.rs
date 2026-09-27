@@ -123,7 +123,7 @@ fn numbered_label(text: &str, label: &regex::Captures<'_>) -> bool {
             || JAPANESE_FOLLOWERS
                 .iter()
                 .any(|word| token.starts_with(word))
-            || rest.starts_with(['=', '<', '>', '±'])
+            || rest.starts_with(['=', '<', '>', '±', '→'])
         {
             return false;
         }
@@ -193,6 +193,7 @@ mod tests {
             "1.0.0 のリリース",
             "1.29 以下の場合",
             "1.29 = x",
+            "0.934 → 0.744",
             "2025 goals",
             "7 倍の高速化",
             "7倍の高速化",

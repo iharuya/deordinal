@@ -212,6 +212,23 @@ mod tests {
     }
 
     #[test]
+    fn fixes_labels_in_inline_markup_without_breaking_it() {
+        let source = "# **Step 1: Setup**\n[Phase A: Plan](target)\n*1. Overview*\n**1.** Overview\n**Step** 1: Install\n";
+        let expected =
+            "# **Setup**\n[Plan](target)\n*Overview*\n**1.** Overview\n**Step** 1: Install\n";
+        assert_eq!(
+            fix_unsafe(source, Language::Markdown).as_deref(),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn does_not_empty_link_labels_when_fixing() {
+        let source = "[Step 1](target)\n**1.** Overview\n";
+        assert!(fix_unsafe(source, Language::Markdown).is_none());
+    }
+
+    #[test]
     fn honors_ignore_and_rejects_invalid_directives() {
         let source = "# Step 1: before\n<!-- deordinal-ignore-start: required -->\n# Step 2: ignored\n<!-- deordinal-ignore-end -->\n# Step 3: after\n";
         let expected = "# before\n<!-- deordinal-ignore-start: required -->\n# Step 2: ignored\n<!-- deordinal-ignore-end -->\n# after\n";

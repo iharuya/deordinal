@@ -11,8 +11,9 @@ pub(crate) fn check(source: &str) -> Vec<Diagnostic> {
     let mut table_depth = 0;
     let mut code_depth = 0;
     let mut list_stack = Vec::new();
-    let options = Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS;
-    for (event, range) in Parser::new_ext(&source[base..], options).into_offset_iter() {
+    let mut inline_openers = Vec::new();
+    let mut leading_text = LeadingText::default();
+    for (event, range) in Parser::new_ext(&source[base..], markdown_options()).into_offset_iter() {
         let range = (base + range.start)..(base + range.end);
         match event {
             Event::Start(Tag::Table(_)) => table_depth += 1,
@@ -32,24 +33,45 @@ pub(crate) fn check(source: &str) -> Vec<Diagnostic> {
             Event::End(TagEnd::List(_)) => {
                 list_stack.pop();
             }
+            Event::Start(Tag::Emphasis) => {
+                inline_openers.push(Some(range.start..range.start + 1));
+            }
+            Event::Start(Tag::Strong | Tag::Strikethrough) => {
+                inline_openers.push(Some(range.start..range.start + 2));
+            }
+            Event::Start(Tag::Link { .. }) => {
+                inline_openers.push(
+                    source[range.start..]
+                        .starts_with('[')
+                        .then_some(range.start..range.start + 1),
+                );
+            }
+            Event::Start(Tag::Image { .. }) => inline_openers.push(None),
+            Event::End(
+                TagEnd::Emphasis
+                | TagEnd::Strong
+                | TagEnd::Strikethrough
+                | TagEnd::Link
+                | TagEnd::Image,
+            ) => {
+                inline_openers.pop();
+            }
             Event::Text(_) if table_depth == 0 && code_depth == 0 => {
-                let raw = &source[range.clone()];
-                for (offset, line) in physical_lines(raw) {
-                    let at = range.start + offset;
-                    if is_structural_prefix(&source[line_start(source, at)..at]) {
-                        let fixable = !list_stack.contains(&true);
-                        let count = diagnostics.len();
-                        rules::check_line(line, at, &mut diagnostics, fixable);
-                        if fixable && diagnostics.len() > count {
-                            let diagnostic = diagnostics.last_mut().unwrap();
-                            if diagnostic.fix.is_none() {
-                                offer_formatted_text_fix(source, diagnostic);
-                            }
-                        }
+                for (offset, line) in physical_lines(&source[range.clone()]) {
+                    if let Some(diagnostic) = leading_text.scan(
+                        source,
+                        range.start + offset,
+                        line,
+                        &inline_openers,
+                        !list_stack.contains(&true),
+                    ) {
+                        diagnostics.push(diagnostic);
                     }
                 }
             }
+            Event::Code(_) => leading_text.block(source, range.start),
             Event::Html(_) | Event::InlineHtml(_) => {
+                leading_text.block(source, range.start);
                 let line_start = line_start(source, range.start);
                 let end = line_end(source, range.start);
                 if source[line_start..end]
@@ -71,11 +93,129 @@ pub(crate) fn check(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
+fn markdown_options() -> Options {
+    Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS | Options::ENABLE_STRIKETHROUGH
+}
+
+#[derive(Default)]
+struct LeadingText {
+    line: Option<usize>,
+    text: String,
+    fragments: Vec<TextFragment>,
+    blocked: bool,
+    reported: bool,
+}
+
+struct TextFragment {
+    logical: Range<usize>,
+    source: Range<usize>,
+}
+
+impl LeadingText {
+    fn on_line(&mut self, source: &str, at: usize) {
+        let line = line_start(source, at);
+        if self.line != Some(line) {
+            *self = Self {
+                line: Some(line),
+                ..Self::default()
+            };
+        }
+    }
+
+    fn block(&mut self, source: &str, at: usize) {
+        self.on_line(source, at);
+        self.blocked = true;
+    }
+
+    fn source_range(&self, range: Range<usize>) -> Range<usize> {
+        let first = self
+            .fragments
+            .iter()
+            .find(|fragment| fragment.logical.contains(&range.start))
+            .expect("label starts in a text fragment");
+        let last = self
+            .fragments
+            .iter()
+            .find(|fragment| fragment.logical.contains(&(range.end - 1)))
+            .expect("label ends in a text fragment");
+        (first.source.start + range.start - first.logical.start)
+            ..(last.source.start + range.end - last.logical.start)
+    }
+
+    fn scan(
+        &mut self,
+        source: &str,
+        at: usize,
+        text: &str,
+        inline_openers: &[Option<Range<usize>>],
+        allow_fix: bool,
+    ) -> Option<Diagnostic> {
+        self.on_line(source, at);
+        if self.blocked || self.reported || text.is_empty() {
+            return None;
+        }
+        if self.fragments.is_empty() && !is_leading_prefix(source, at, inline_openers) {
+            self.blocked = true;
+            return None;
+        }
+
+        let start = self.text.len();
+        self.text.push_str(text);
+        self.fragments.push(TextFragment {
+            logical: start..self.text.len(),
+            source: at..at + text.len(),
+        });
+
+        let mut found = Vec::new();
+        rules::check_line(&self.text, 0, &mut found, allow_fix);
+        let mut diagnostic = found.pop()?;
+        self.reported = true;
+        let label = diagnostic.start..diagnostic.end;
+        let raw_label = self.source_range(label.clone());
+        if let Some(fix) = diagnostic.fix.take() {
+            let raw_fix = self.source_range(fix.clone());
+            if source.get(raw_fix.clone()) == self.text.get(fix) {
+                diagnostic.fix = Some(raw_fix);
+            }
+        }
+        diagnostic.start = raw_label.start;
+        diagnostic.end = raw_label.end;
+        if allow_fix
+            && inline_openers.is_empty()
+            && diagnostic.fix.is_none()
+            && source.get(raw_label) == self.text.get(label)
+        {
+            offer_formatted_text_fix(source, &mut diagnostic);
+        }
+        Some(diagnostic)
+    }
+}
+
+fn is_leading_prefix(source: &str, at: usize, inline_openers: &[Option<Range<usize>>]) -> bool {
+    let line = line_start(source, at);
+    let mut cursor = line;
+    for opener in inline_openers {
+        let Some(opener) = opener else {
+            return false;
+        };
+        if opener.start < line {
+            continue;
+        }
+        if opener.start < cursor
+            || opener.end > at
+            || !is_structural_prefix(&source[cursor..opener.start])
+        {
+            return false;
+        }
+        cursor = opener.end;
+    }
+    is_structural_prefix(&source[cursor..at])
+}
+
 pub(crate) fn same_structure(before: &str, after: &str) -> bool {
     fn structure(source: &str) -> Vec<String> {
         let base = frontmatter_end(source);
-        let options = Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS;
-        Parser::new_ext(&source[base..], options)
+        Parser::new_ext(&source[base..], markdown_options())
             .filter(|event| !matches!(event, Event::Text(_)))
             .map(|event| format!("{event:?}"))
             .collect()
@@ -86,8 +226,7 @@ pub(crate) fn same_structure(before: &str, after: &str) -> bool {
 fn offer_formatted_text_fix(source: &str, diagnostic: &mut Diagnostic) {
     let rest = &source[diagnostic.end..line_end(source, diagnostic.end)];
     let whitespace = rest.len() - rest.trim_start_matches([' ', '\t']).len();
-    let options = Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS;
-    if Parser::new_ext(&rest[whitespace..], options)
+    if Parser::new_ext(&rest[whitespace..], markdown_options())
         .any(|event| matches!(event, Event::Text(text) if text.chars().any(char::is_alphanumeric)))
     {
         diagnostic.fix = Some(diagnostic.start..diagnostic.end + whitespace);
@@ -324,7 +463,7 @@ mod tests {
 
     #[test]
     fn excluded_markdown_regions() {
-        let src = "---\ntitle: 1. no\n---\n\n```ts\n// Step 1\n1. code\n```\n\n    2. indented code\n\n`1. no`\n**1.** Overview\n| 1. col | Step 1 |\n| --- | --- |\n| x | y |\n<!-- Step 1 -->\n<div>Step 1</div>\n";
+        let src = "---\ntitle: 1. no\n---\n\n```ts\n// Step 1\n1. code\n```\n\n    2. indented code\n\n`1. no`\n| 1. col | Step 1 |\n| --- | --- |\n| x | y |\n<!-- Step 1 -->\n<div>Step 1</div>\n";
         assert!(hits(src).is_empty(), "{:?}", hits(src));
     }
 
@@ -408,7 +547,36 @@ mod tests {
     #[test]
     fn empty_and_escaped_input() {
         assert!(hits("").is_empty());
-        assert!(hits("# \\1. escaped\n**1.** Formatted\n").is_empty());
+        assert!(hits("# \\1. escaped\n").is_empty());
+    }
+
+    #[test]
+    fn leading_labels_inside_inline_markup() {
+        let src = "# **Step 1: Setup**\n**1. Overview**\n**1.** Overview\n*Step 1: Setup*\n__Phase A: Plan__\n- **2. Item**\n> **Phase A: Plan**\n[Step 1: Setup](https://example.com)\n[**1.** Overview](url)\n***Step 3***\n~~Phase B~~\n**Step** 1: Install\n**1**. Overview\n";
+        let ds = hits(src);
+        assert_eq!(ds.len(), 13, "{ds:?}");
+        for (diagnostic, line) in ds.iter().zip(1..) {
+            assert_eq!(line_column(src, diagnostic.start).0, line, "{diagnostic:?}");
+        }
+        assert_eq!(line_column(src, ds[0].start), (1, 5));
+        assert_eq!(line_column(src, ds[1].start), (2, 3));
+        assert_eq!(line_column(src, ds[7].start), (8, 2));
+        assert_eq!(&src[ds[11].start..ds[11].end], "Step** 1:");
+        assert_eq!(&src[ds[12].start..ds[12].end], "1**.");
+    }
+
+    #[test]
+    fn formatted_quantity_is_not_an_ordering_label() {
+        let src = "**0.934 → 0.744**\n**8.4 And then a section**\n";
+        let ds = hits(src);
+        assert_eq!(ds.len(), 1, "{ds:?}");
+        assert_eq!(line_column(src, ds[0].start), (2, 3));
+    }
+
+    #[test]
+    fn inline_markup_does_not_turn_later_text_into_a_label() {
+        let src = "Plain **Step 1**\n`code` **Step 1**\n![Step 1](image.png)\n![alt](image.png) **Step 1**\n\\*Step 1*\n<span>Step 1</span>\n**plain** Step 1\n| label | value |\n| --- | --- |\n| **Step 1** | x |\n```md\n**Step 1**\n```\n";
+        assert!(hits(src).is_empty(), "{:?}", hits(src));
     }
 
     #[test]
