@@ -561,6 +561,29 @@ fn write_rechecks_files_and_reports_only_remaining_warnings() {
 }
 
 #[test]
+fn write_fixes_formatted_labels_before_inline_code_without_emptying_links() {
+    let dir = tempdir().unwrap();
+    let markdown = dir.path().join("guide.md");
+    fs::write(
+        &markdown,
+        "**2. `option` is enabled.**\n[Step 1: `option` is available](target)\n[Step 1](target)\n",
+    )
+    .unwrap();
+
+    let before = run(dir.path(), &["check", "guide.md"]);
+    assert_eq!(before.status.code(), Some(1));
+    assert!(stdout(&before).contains("Hint:"));
+
+    let output = run(dir.path(), &["check", "--write", "--unsafe", "guide.md"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stdout(&output).contains("Applied fixes to guide.md"));
+    assert_eq!(
+        fs::read_to_string(markdown).unwrap(),
+        "**`option` is enabled.**\n[`option` is available](target)\n[Step 1](target)\n"
+    );
+}
+
+#[test]
 fn write_respects_ignore_and_does_not_edit_files_with_ignore_errors() {
     let dir = tempdir().unwrap();
     let ignored = "<!-- deordinal-ignore-start: required -->\n# Step 1: ignored\n<!-- deordinal-ignore-end -->\n# Step 2: edit\n";

@@ -112,23 +112,28 @@ fn fix_once(source: &str, language: Language) -> Option<String> {
     if accepted.is_empty() {
         return None;
     }
-    if preserves_structure(source, &result, language) {
+    if preserves_structure(source, &result, language, &accepted) {
         return Some(result);
     }
     let mut result = source.to_owned();
     for range in accepted {
         let mut candidate = result.clone();
-        candidate.replace_range(range, "");
-        if preserves_structure(&result, &candidate, language) {
+        candidate.replace_range(range.clone(), "");
+        if preserves_structure(&result, &candidate, language, &[range]) {
             result = candidate;
         }
     }
     (result != source).then_some(result)
 }
 
-fn preserves_structure(before: &str, after: &str, language: Language) -> bool {
+fn preserves_structure(
+    before: &str,
+    after: &str,
+    language: Language,
+    edits: &[Range<usize>],
+) -> bool {
     match language {
-        Language::Markdown => markdown::same_structure(before, after),
+        Language::Markdown => markdown::same_structure(before, after, edits),
         Language::Html => html::same_structure(before, after),
         _ => true,
     }
@@ -205,6 +210,64 @@ mod tests {
     fn fixes_headings_with_formatted_prose() {
         let source = "# 1. **Strong**\n## Step 1: [Link](target)\n";
         let expected = "# **Strong**\n## [Link](target)\n";
+        assert_eq!(
+            fix_unsafe(source, Language::Markdown).as_deref(),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn fixes_labels_in_inline_markup_without_breaking_it() {
+        let source = "# **Step 1: Setup**\n[Phase A: Plan](target)\n*1. Overview*\n**1.** Overview\n**Step** 1: Install\n";
+        let expected = "# **Setup**\n[Plan](target)\n*Overview*\nOverview\n**Step** 1: Install\n";
+        assert_eq!(
+            fix_unsafe(source, Language::Markdown).as_deref(),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn fixes_labels_that_fill_an_entire_strong_span() {
+        let source = "**1.** Overview\n# __2.__ Details\n- **3.** Item\n";
+        let expected = "Overview\n# Details\n- Item\n";
+        assert_eq!(check(source, Language::Markdown).len(), 3);
+        assert_eq!(
+            fix_unsafe(source, Language::Markdown).as_deref(),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn fixes_formatted_labels_before_inline_code() {
+        let source = "**2. `option` is enabled.**\n**2.4 `+` is visible.**\n[Step 1: `option` is available](target)\n**2. `option`**\n";
+        let expected = "**`option` is enabled.**\n**`+` is visible.**\n[`option` is available](target)\n**`option`**\n";
+        assert_eq!(
+            fix_unsafe(source, Language::Markdown).as_deref(),
+            Some(expected)
+        );
+        assert!(fix_unsafe(expected, Language::Markdown).is_none());
+    }
+
+    #[test]
+    fn does_not_empty_link_labels_when_fixing() {
+        let source = "[Step 1](target) `option` is available\n**1.**\n[Step 1: ![logo](image.png)](target)\n";
+        assert!(fix_unsafe(source, Language::Markdown).is_none());
+    }
+
+    #[test]
+    fn skips_removing_strong_labels_if_the_remainder_changes_markdown_structure() {
+        let source = "**1.** 2. Next\n# **3.** Title\n";
+        let expected = "**1.** 2. Next\n# Title\n";
+        assert_eq!(
+            fix_unsafe(source, Language::Markdown).as_deref(),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn does_not_fix_quantities_as_ordering_labels() {
+        let source = "# 2.5 seconds elapsed\n**2.5 秒経過**\n# 1.29 Features\n";
+        let expected = "# 2.5 seconds elapsed\n**2.5 秒経過**\n# Features\n";
         assert_eq!(
             fix_unsafe(source, Language::Markdown).as_deref(),
             Some(expected)
