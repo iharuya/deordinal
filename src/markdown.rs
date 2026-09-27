@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn text_positions_and_structures() {
-        let src = "# 1. 見出し\r\n\r\n> Step 1: 引用\r\n- [ ] 2: タスク\r\n普通の段落\n3: 続き\n";
+        let src = "# 1. Heading\r\n\r\n> Step 1: Quote\r\n- [ ] 2: Task\r\nPlain paragraph\n3: Continue\n";
         let ds = hits(src);
         assert_eq!(ds.len(), 4, "{ds:?}");
         assert_eq!(line_column(src, ds[0].start), (1, 3));
@@ -324,13 +324,13 @@ mod tests {
 
     #[test]
     fn excluded_markdown_regions() {
-        let src = "---\ntitle: 1. no\n---\n\n```ts\n// Step 1\n1. code\n```\n\n    2. indented code\n\n`1. no`\n**1.** 概要\n| 1. col | Step 1 |\n| --- | --- |\n| x | y |\n<!-- Step 1 -->\n<div>Step 1</div>\n";
+        let src = "---\ntitle: 1. no\n---\n\n```ts\n// Step 1\n1. code\n```\n\n    2. indented code\n\n`1. no`\n**1.** Overview\n| 1. col | Step 1 |\n| --- | --- |\n| x | y |\n<!-- Step 1 -->\n<div>Step 1</div>\n";
         assert!(hits(src).is_empty(), "{:?}", hits(src));
     }
 
     #[test]
     fn directives_boundaries_and_errors() {
-        let src = "# Step 1\n<!-- deordinal-ignore-start: 必須 -->\n1. suppressed\n<!-- deordinal-ignore-end -->\n# Phase A\n";
+        let src = "# Step 1\n<!-- deordinal-ignore-start: required -->\n1. suppressed\n<!-- deordinal-ignore-end -->\n# Phase A\n";
         let ds = hits(src);
         assert_eq!(ds.len(), 2, "{ds:?}");
         assert_eq!(line_column(src, ds[1].start).0, 5);
@@ -359,7 +359,7 @@ mod tests {
 
     #[test]
     fn crlf_range_never_suppresses_ignore_errors() {
-        let src = "<!-- deordinal-ignore-start: 必須 -->\r\n# Step 1\r\n<!-- deordinal-ignore -->\r\n<!-- deordinal-ignore-end -->\r\n# Phase A\r\n";
+        let src = "<!-- deordinal-ignore-start: required -->\r\n# Step 1\r\n<!-- deordinal-ignore -->\r\n<!-- deordinal-ignore-end -->\r\n# Phase A\r\n";
         let ds = hits(src);
         assert_eq!(ds.len(), 2, "{ds:?}");
         assert_eq!(ds[0].rule, "ignore");
@@ -368,15 +368,15 @@ mod tests {
 
     #[test]
     fn file_ignore_only_at_start_with_reason() {
-        let src = "\u{feff}\n<!-- deordinal-ignore-file: 手順書 -->\n# Step 1\n";
+        let src = "\u{feff}\n<!-- deordinal-ignore-file: manual -->\n# Step 1\n";
         assert!(hits(src).is_empty(), "{:?}", hits(src));
-        let src = "# Step 1\n<!-- deordinal-ignore-file: 手順書 -->\n";
+        let src = "# Step 1\n<!-- deordinal-ignore-file: manual -->\n";
         assert_eq!(hits(src).len(), 2);
     }
 
     #[test]
     fn consecutive_directives_and_nested_lists() {
-        let src = "<!-- deordinal-ignore-start: 手順 -->\n<!-- note -->\n1. first\n   1. nested\n<!-- deordinal-ignore-end -->\n# Step 1\n";
+        let src = "<!-- deordinal-ignore-start: procedure -->\n<!-- note -->\n1. first\n   1. nested\n<!-- deordinal-ignore-end -->\n# Step 1\n";
         let ds = hits(src);
         assert_eq!(ds.len(), 1, "{ds:?}");
         assert_eq!(line_column(src, ds[0].start).0, 6);
@@ -385,12 +385,12 @@ mod tests {
     #[test]
     fn adjacent_and_multiline_directives() {
         let adjacent =
-            "<!-- deordinal-ignore-start: 手順 -->\n<!-- deordinal-ignore-end -->\n# Step 1\n";
+            "<!-- deordinal-ignore-start: procedure -->\n<!-- deordinal-ignore-end -->\n# Step 1\n";
         let ds = hits(adjacent);
         assert_eq!(ds.len(), 1, "{ds:?}");
         assert_eq!(ds[0].rule, "keyword-prefix");
 
-        let multiline = "<!-- deordinal-ignore-start: 手順\n-->\n# Step 1\n";
+        let multiline = "<!-- deordinal-ignore-start: procedure\n-->\n# Step 1\n";
         let ds = hits(multiline);
         assert_eq!(ds.len(), 2, "{ds:?}");
         assert_eq!(ds[0].rule, "ignore");
@@ -408,7 +408,7 @@ mod tests {
     #[test]
     fn empty_and_escaped_input() {
         assert!(hits("").is_empty());
-        assert!(hits("# \\1. escaped\n**1.** 装飾付き\n").is_empty());
+        assert!(hits("# \\1. escaped\n**1.** Formatted\n").is_empty());
     }
 
     #[test]

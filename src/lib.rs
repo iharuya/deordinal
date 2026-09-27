@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn diagnostic_rules_use_public_names() {
         let diagnostics = check(
-            "# 1. 概要\n\n1. first\n2. second\n# Step 1\n<!-- deordinal-ignore -->\n",
+            "# 1. Overview\n\n1. first\n2. second\n# Step 1\n<!-- deordinal-ignore -->\n",
             Language::Markdown,
         );
         let rules: Vec<_> = diagnostics
@@ -185,8 +185,8 @@ mod tests {
 
     #[test]
     fn fixes_markdown_prose_without_changing_syntax() {
-        let source = "\u{feff}# 1. 概要\r\n> Phase A: 計画\r\n- Step 1: 準備\r\n- [ ] 2: 確認\r\n普通の段落\r\n3: 続き\r\n";
-        let expected = "\u{feff}# 概要\r\n> 計画\r\n- 準備\r\n- [ ] 確認\r\n普通の段落\r\n続き\r\n";
+        let source = "\u{feff}# 1. Overview\r\n> Phase A: Plan\r\n- Step 1: Prepare\r\n- [ ] 2: Confirm\r\nPlain paragraph\r\n3: Continue\r\n";
+        let expected = "\u{feff}# Overview\r\n> Plan\r\n- Prepare\r\n- [ ] Confirm\r\nPlain paragraph\r\nContinue\r\n";
         assert_eq!(
             fix_unsafe(source, Language::Markdown).as_deref(),
             Some(expected)
@@ -255,8 +255,8 @@ mod tests {
             Language::TypeScript,
             Language::Tsx,
         ] {
-            let source = "const x = '// Step 1: literal'; // 1. 初期化\n// someCode()\n// 2. 実行\n/* Phase A: 準備 */\n/* Step 1 */\n";
-            let expected = "const x = '// Step 1: literal'; // 初期化\n// someCode()\n// 実行\n/* 準備 */\n/* Step 1 */\n";
+            let source = "const x = '// Step 1: literal'; // 1. Initialize\n// someCode()\n// 2. Run\n/* Phase A: Prepare */\n/* Step 1 */\n";
+            let expected = "const x = '// Step 1: literal'; // Initialize\n// someCode()\n// Run\n/* Prepare */\n/* Step 1 */\n";
             assert_eq!(
                 fix_unsafe(source, language).as_deref(),
                 Some(expected),
@@ -264,8 +264,8 @@ mod tests {
             );
             assert!(fix_unsafe(expected, language).is_none());
         }
-        let python = "\"\"\"Step 1: docstring\"\"\"\n# ① 準備\nvalue = '1. ordinary'\n";
-        let expected = "\"\"\"Step 1: docstring\"\"\"\n# 準備\nvalue = '1. ordinary'\n";
+        let python = "\"\"\"Step 1: docstring\"\"\"\n# ① Prepare\nvalue = '1. ordinary'\n";
+        let expected = "\"\"\"Step 1: docstring\"\"\"\n# Prepare\nvalue = '1. ordinary'\n";
         assert_eq!(
             fix_unsafe(python, Language::Python).as_deref(),
             Some(expected)
@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn unicode_column_and_crlf() {
-        let text = "あ🐱: Step 1\r\n# Phase A\n";
+        let text = "é🐱: Step 1\r\n# Phase A\n";
         let index = LineIndex::new(text);
         assert_eq!(index.line_column(text, text.find("Step").unwrap()), (1, 5));
         assert_eq!(index.line_column(text, text.find("Phase").unwrap()), (2, 3));
