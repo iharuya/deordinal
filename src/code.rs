@@ -38,7 +38,7 @@ fn visit(node: Node<'_>, source: &str, python: bool, diagnostics: &mut Vec<Diagn
             line_start += line.len() - text.len();
             let marker = if block && text.starts_with("/*") {
                 "/*"
-            } else if block && text.starts_with('*') {
+            } else if block && text.starts_with('*') && !text.starts_with("**") {
                 "*"
             } else if text.starts_with("//") {
                 "//"
@@ -54,7 +54,7 @@ fn visit(node: Node<'_>, source: &str, python: bool, diagnostics: &mut Vec<Diagn
             if block {
                 text = text.strip_suffix("*/").unwrap_or(text);
             }
-            rules::check_line(text, line_start, diagnostics, true);
+            rules::check_bold_line(text, line_start, diagnostics, true);
         }
         return;
     }
@@ -124,13 +124,13 @@ fn docstring(body: Node<'_>, source: &str, diagnostics: &mut Vec<Diagnostic>) {
     };
     let start = string.start_byte() + prefix_len + quote.len();
     for (offset, line) in physical_lines(content) {
-        rules::check_line(line, start + offset, diagnostics, false);
+        rules::check_bold_line(line, start + offset, diagnostics, false);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{Language, LineIndex, check};
+    use crate::{Language, LineIndex, check, fix_unsafe};
 
     #[test]
     fn javascript_and_typescript_only_comments() {
@@ -201,6 +201,40 @@ mod tests {
         let hits = check(src, Language::JavaScript);
         assert_eq!(hits.len(), 1, "{hits:?}");
         assert_eq!(hits[0].rule, "keyword-prefix");
+    }
+
+    #[test]
+    fn bold_labels_in_code_comments() {
+        for language in [
+            Language::JavaScript,
+            Language::Jsx,
+            Language::TypeScript,
+            Language::Tsx,
+        ] {
+            let source = "const text = '**3.** Not a comment';\n// **1.** Overview\n/* **Step 1: Ready** */\n/*\n**2.** Details\n * __Phase A: Plan__\n */\n";
+            let expected = "const text = '**3.** Not a comment';\n// Overview\n/* **Ready** */\n/*\nDetails\n * __Plan__\n */\n";
+            assert_eq!(check(source, language).len(), 4, "{language:?}");
+            assert_eq!(fix_unsafe(source, language).as_deref(), Some(expected));
+        }
+    }
+
+    #[test]
+    fn bold_labels_in_python_comments_and_docstrings() {
+        let source = "# **1.** Ready\n\"\"\"**2.** Details\"\"\"\n";
+        let expected = "# Ready\n\"\"\"**2.** Details\"\"\"\n";
+        assert_eq!(check(source, Language::Python).len(), 2);
+        assert_eq!(
+            fix_unsafe(source, Language::Python).as_deref(),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn quantity_exclusions_apply_to_code_comments() {
+        for language in [Language::JavaScript, Language::TypeScript] {
+            assert!(check("// 2.5 seconds elapsed\n", language).is_empty());
+        }
+        assert!(check("# 2.5 秒経過\n", Language::Python).is_empty());
     }
 
     #[test]

@@ -79,6 +79,52 @@ pub(crate) fn check_line(
     }
 }
 
+pub(crate) fn check_bold_line(
+    line: &str,
+    start: usize,
+    diagnostics: &mut Vec<Diagnostic>,
+    allow_fix: bool,
+) {
+    let text = line.trim_start_matches([' ', '\t']);
+    let at = start + line.len() - text.len();
+    let marker = if text.starts_with("**") {
+        "**"
+    } else if text.starts_with("__") {
+        "__"
+    } else {
+        check_line(line, start, diagnostics, allow_fix);
+        return;
+    };
+    let Some(end) = text[marker.len()..]
+        .find(marker)
+        .map(|at| at + marker.len())
+    else {
+        check_line(line, start, diagnostics, allow_fix);
+        return;
+    };
+    let inner = &text[marker.len()..end];
+    let mut found = Vec::new();
+    check_line(inner, at + marker.len(), &mut found, allow_fix);
+    let Some(mut diagnostic) = found.pop() else {
+        return;
+    };
+    if allow_fix && diagnostic.fix.is_none() {
+        let inner_start = at + marker.len();
+        let only_label = inner[..diagnostic.start - inner_start]
+            .trim_matches([' ', '\t'])
+            .is_empty()
+            && inner[diagnostic.end - inner_start..]
+                .trim_matches([' ', '\t'])
+                .is_empty();
+        let rest = &text[end + marker.len()..];
+        let whitespace = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+        if only_label && rest[whitespace..].chars().any(char::is_alphanumeric) {
+            diagnostic.fix = Some(at..at + end + marker.len() + whitespace);
+        }
+    }
+    diagnostics.push(diagnostic);
+}
+
 fn numbered_label(text: &str, label: &regex::Captures<'_>) -> bool {
     let number = &label["number"];
     let separator = &label["separator"];
