@@ -229,6 +229,16 @@ mod tests {
     }
 
     #[test]
+    fn does_not_fix_quantities_as_ordering_labels() {
+        let source = "# 2.5 seconds elapsed\n**2.5 秒経過**\n# 1.29 Features\n";
+        let expected = "# 2.5 seconds elapsed\n**2.5 秒経過**\n# Features\n";
+        assert_eq!(
+            fix_unsafe(source, Language::Markdown).as_deref(),
+            Some(expected)
+        );
+    }
+
+    #[test]
     fn honors_ignore_and_rejects_invalid_directives() {
         let source = "# Step 1: before\n<!-- deordinal-ignore-start: required -->\n# Step 2: ignored\n<!-- deordinal-ignore-end -->\n# Step 3: after\n";
         let expected = "# before\n<!-- deordinal-ignore-start: required -->\n# Step 2: ignored\n<!-- deordinal-ignore-end -->\n# after\n";

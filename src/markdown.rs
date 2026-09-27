@@ -574,6 +574,15 @@ mod tests {
     }
 
     #[test]
+    fn units_after_decimal_numbers_are_not_ordering_labels() {
+        let src = "2.5 seconds elapsed\n2.5 秒経過\n**2.5 seconds.**\n# **2.5 秒経過**\n# 1.29 Features\n**4.4 コーパスを検査する**\n";
+        let ds = hits(src);
+        assert_eq!(ds.len(), 2, "{ds:?}");
+        assert_eq!(line_column(src, ds[0].start), (5, 3));
+        assert_eq!(line_column(src, ds[1].start), (6, 3));
+    }
+
+    #[test]
     fn inline_markup_does_not_turn_later_text_into_a_label() {
         let src = "Plain **Step 1**\n`code` **Step 1**\n![Step 1](image.png)\n![alt](image.png) **Step 1**\n\\*Step 1*\n<span>Step 1</span>\n**plain** Step 1\n| label | value |\n| --- | --- |\n| **Step 1** | x |\n```md\n**Step 1**\n```\n";
         assert!(hits(src).is_empty(), "{:?}", hits(src));
