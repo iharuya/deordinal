@@ -144,22 +144,22 @@ mod tests {
     #[test]
     fn ordinal_examples() {
         for case in [
-            "1. 概要",
-            "1: 設定",
-            "1) 概要",
-            "1．導入",
-            "1、準備",
-            "1.29 機能説明",
-            "1.2.3 設計",
-            "1.29: 詳細",
-            "A) 手順",
-            "a. 手順",
-            "(1) 概要",
-            "[a] 概要",
-            "(一) 概要",
-            "① 項目",
-            "㊿ 項目",
-            "一、 はじめに",
+            "1. Overview",
+            "1: Setup",
+            "1) Overview",
+            "1．Introduction",
+            "1、Prepare",
+            "1.29 Features",
+            "1.2.3 Design",
+            "1.29: Details",
+            "A) Procedure",
+            "a. Procedure",
+            "(1) Overview",
+            "[a] Overview",
+            "(一) Overview",
+            "① Item",
+            "㊿ Item",
+            "一、 Introduction",
         ] {
             assert_eq!(rule(case), Some(PREFIX), "{case}");
         }
@@ -169,13 +169,13 @@ mod tests {
     fn keyword_examples() {
         for case in [
             "Step 1",
-            "Step 1: 初期化",
+            "Step 1: Initialize",
             "Phase A",
-            "phase A: 計画",
+            "phase A: Plan",
             "ステップ 1",
-            "フェーズ1: 開発",
-            "タスク 1. 調査",
-            "ステージ ① 準備",
+            "フェーズ1: Develop",
+            "タスク 1. Investigate",
+            "ステージ ① Prepare",
         ] {
             assert_eq!(rule(case), Some(KEYWORD_PREFIX), "{case}");
         }
@@ -184,27 +184,27 @@ mod tests {
     #[test]
     fn negative_examples() {
         for case in [
-            "e.g. 例えば",
-            "i.e., つまり",
+            "e.g. example",
+            "i.e., in other words",
             "https://example.com/step1",
             "1.29 GB",
-            "1.29 GB/s の転送",
+            "1.29 GB/s transfer",
             "1.29 は 1.3 未満",
             "1.0.0 のリリース",
             "1.29 以下の場合",
             "1.29 = x",
-            "2025 年の目標",
+            "2025 goals",
             "7 倍の高速化",
             "7倍の高速化",
-            "100 円のコスト",
+            "100 yen cost",
             "1 BTC",
-            "- 項目",
-            "空の見出し",
+            "- Item",
+            "Plain heading",
             "",
             "   ",
             "Step 1abc",
             "API. documentation",
-            "㋐ 項目",
+            "㋐ Item",
         ] {
             assert_eq!(rule(case), None, "{case}");
         }
@@ -213,7 +213,7 @@ mod tests {
     #[test]
     fn diagnostics_point_at_label() {
         let mut diagnostics = Vec::new();
-        check_line("  Step 1: 準備", 10, &mut diagnostics, false);
+        check_line("  Step 1: Prepare", 10, &mut diagnostics, false);
         assert_eq!(diagnostics[0].start, 12);
         assert_eq!(diagnostics[0].rule, KEYWORD_PREFIX);
     }
