@@ -124,7 +124,7 @@ fn docstring(body: Node<'_>, source: &str, diagnostics: &mut Vec<Diagnostic>) {
     };
     let start = string.start_byte() + prefix_len + quote.len();
     for (offset, line) in physical_lines(content) {
-        rules::check_line(line, start + offset, diagnostics, false);
+        rules::check_line(line, start + offset, diagnostics, true);
     }
 }
 

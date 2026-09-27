@@ -561,6 +561,32 @@ fn write_rechecks_files_and_reports_only_remaining_warnings() {
 }
 
 #[test]
+fn python_docstrings_require_unsafe_and_leave_unsupported_labels() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("module.py");
+    let source = "\"\"\"Step 1: Intro\n2. Details\nPhase A\"\"\"\nvalue = '3. ordinary'\n";
+    fs::write(&path, source).unwrap();
+
+    let check = run(dir.path(), &["check", "module.py"]);
+    assert_eq!(check.status.code(), Some(1));
+    assert!(stdout(&check).contains("Hint: Re-run this check with `--write --unsafe`"));
+    assert_eq!(fs::read_to_string(&path).unwrap(), source);
+
+    let written = run(dir.path(), &["check", "--write", "--unsafe", "module.py"]);
+    assert_eq!(written.status.code(), Some(1));
+    assert!(stdout(&written).contains("Applied fixes to module.py"));
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "\"\"\"Intro\nDetails\nPhase A\"\"\"\nvalue = '3. ordinary'\n"
+    );
+    assert!(!stdout(&written).contains("Hint:"));
+
+    let again = run(dir.path(), &["check", "--write", "--unsafe", "module.py"]);
+    assert_eq!(again.status.code(), Some(1));
+    assert!(!stdout(&again).contains("Applied fixes"));
+}
+
+#[test]
 fn write_respects_ignore_and_does_not_edit_files_with_ignore_errors() {
     let dir = tempdir().unwrap();
     let ignored = "<!-- deordinal-ignore-start: required -->\n# Step 1: ignored\n<!-- deordinal-ignore-end -->\n# Step 2: edit\n";

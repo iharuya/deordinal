@@ -4,7 +4,7 @@
 
 **Remove the numbers. Make room for change.**
 
-LLMs often add `Step 1`, `Step 2`, and `Step 3` to comments and documentation. When things change, those labels fall out of sync and make simple edits harder. deordinal detects unnecessary ordering in Markdown, HTML comments, and code comments, and can remove supported labels without changing the code itself.
+LLMs often add `Step 1`, `Step 2`, and `Step 3` to comments and documentation. When things change, those labels fall out of sync and make simple edits harder. deordinal detects unnecessary ordering in Markdown, HTML comments, code comments, and Python docstrings, and can remove supported labels with explicit unsafe autofix.
 
 ## Installation
 
