@@ -27,12 +27,12 @@ fn visit(node: Node<'_>, source: &str, diagnostics: &mut Vec<Diagnostic>) {
             for (offset, line) in physical_lines(content) {
                 let text = line.trim_start_matches([' ', '\t']);
                 let leading = line.len() - text.len();
-                let (text, marker) = if let Some(rest) = text.strip_prefix('*') {
-                    (rest, 1)
+                let (text, marker) = if text.starts_with('*') && !text.starts_with("**") {
+                    (&text[1..], 1)
                 } else {
                     (text, 0)
                 };
-                rules::check_line(
+                rules::check_bold_line(
                     text,
                     start + 4 + offset + leading + marker,
                     diagnostics,
@@ -115,6 +115,23 @@ mod tests {
             Some(expected)
         );
         assert!(fix_unsafe(expected, Language::Html).is_none());
+    }
+
+    #[test]
+    fn bold_labels_in_html_comments() {
+        let source = "<!-- **1.** Overview -->\n<!-- __Step 1: Setup__ details -->\n<h1>**3.** Not a comment</h1>\n";
+        let expected =
+            "<!-- Overview -->\n<!-- __Setup__ details -->\n<h1>**3.** Not a comment</h1>\n";
+        assert_eq!(hits(source).len(), 2);
+        assert_eq!(
+            fix_unsafe(source, Language::Html).as_deref(),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn quantity_exclusions_apply_to_html_comments() {
+        assert!(hits("<!-- 2.5 seconds elapsed -->\n").is_empty());
     }
 
     #[test]

@@ -79,6 +79,52 @@ pub(crate) fn check_line(
     }
 }
 
+pub(crate) fn check_bold_line(
+    line: &str,
+    start: usize,
+    diagnostics: &mut Vec<Diagnostic>,
+    allow_fix: bool,
+) {
+    let text = line.trim_start_matches([' ', '\t']);
+    let at = start + line.len() - text.len();
+    let marker = if text.starts_with("**") {
+        "**"
+    } else if text.starts_with("__") {
+        "__"
+    } else {
+        check_line(line, start, diagnostics, allow_fix);
+        return;
+    };
+    let Some(end) = text[marker.len()..]
+        .find(marker)
+        .map(|at| at + marker.len())
+    else {
+        check_line(line, start, diagnostics, allow_fix);
+        return;
+    };
+    let inner = &text[marker.len()..end];
+    let mut found = Vec::new();
+    check_line(inner, at + marker.len(), &mut found, allow_fix);
+    let Some(mut diagnostic) = found.pop() else {
+        return;
+    };
+    if allow_fix && diagnostic.fix.is_none() {
+        let inner_start = at + marker.len();
+        let only_label = inner[..diagnostic.start - inner_start]
+            .trim_matches([' ', '\t'])
+            .is_empty()
+            && inner[diagnostic.end - inner_start..]
+                .trim_matches([' ', '\t'])
+                .is_empty();
+        let rest = &text[end + marker.len()..];
+        let whitespace = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+        if only_label && rest[whitespace..].chars().any(char::is_alphanumeric) {
+            diagnostic.fix = Some(at..at + end + marker.len() + whitespace);
+        }
+    }
+    diagnostics.push(diagnostic);
+}
+
 fn numbered_label(text: &str, label: &regex::Captures<'_>) -> bool {
     let number = &label["number"];
     let separator = &label["separator"];
@@ -91,11 +137,6 @@ fn numbered_label(text: &str, label: &regex::Captures<'_>) -> bool {
             .split(|c: char| c.is_whitespace() || ",，。;；".contains(c))
             .next()
             .unwrap_or("");
-        let unit = token.split('/').next().unwrap_or(token);
-        const UNITS: &[&str] = &[
-            "GB", "MB", "KB", "TB", "GHz", "MHz", "Hz", "ms", "px", "mm", "cm", "km", "m", "kg",
-            "g", "BTC", "ETH", "USDC",
-        ];
         const JAPANESE_FOLLOWERS: &[&str] = &[
             "%",
             "℃",
@@ -119,16 +160,31 @@ fn numbered_label(text: &str, label: &regex::Captures<'_>) -> bool {
             "前後",
             "程度",
         ];
-        if UNITS.contains(&unit)
+        if is_quantity_unit(token)
             || JAPANESE_FOLLOWERS
                 .iter()
                 .any(|word| token.starts_with(word))
-            || rest.starts_with(['=', '<', '>', '±'])
+            || rest.starts_with(['=', '<', '>', '±', '→'])
         {
             return false;
         }
     }
     true
+}
+
+fn is_quantity_unit(token: &str) -> bool {
+    let unit = token
+        .split('/')
+        .next()
+        .unwrap_or(token)
+        .trim_end_matches(['.', ':', '!', '?', ')', ']', '。', '：', '！', '？', '）']);
+    const UNITS: &[&str] = &[
+        "GB", "MB", "KB", "TB", "GHz", "MHz", "Hz", "ms", "px", "mm", "cm", "km", "m", "kg", "g",
+        "BTC", "ETH", "USDC", "s", "sec", "secs", "second", "seconds", "min", "mins", "minute",
+        "minutes", "h", "hr", "hrs", "hour", "hours", "day", "days", "week", "weeks", "秒", "分",
+        "分間", "時間", "日", "日間", "週間",
+    ];
+    UNITS.iter().any(|word| unit.eq_ignore_ascii_case(word)) || unit.starts_with('秒')
 }
 
 #[cfg(test)]
@@ -189,10 +245,21 @@ mod tests {
             "https://example.com/step1",
             "1.29 GB",
             "1.29 GB/s transfer",
+            "2.5 seconds elapsed",
+            "2.5 seconds.",
+            "2.5 Sec elapsed",
+            "2.5 s elapsed",
+            "2.5 hours elapsed",
+            "2.5 minutes elapsed",
+            "2.5 秒経過",
+            "2.5 秒",
+            "2.5 時間",
+            "2.5 分間",
             "1.29 は 1.3 未満",
             "1.0.0 のリリース",
             "1.29 以下の場合",
             "1.29 = x",
+            "0.934 → 0.744",
             "2025 goals",
             "7 倍の高速化",
             "7倍の高速化",
