@@ -35,19 +35,35 @@ pub(crate) fn check(source: &str) -> Vec<Diagnostic> {
                 list_stack.pop();
             }
             Event::Start(Tag::Emphasis) => {
-                inline_openers.push(Some(range.start..range.start + 1));
+                inline_openers.push(InlineMarkup {
+                    opener: Some(range.start..range.start + 1),
+                    strong: None,
+                });
             }
-            Event::Start(Tag::Strong | Tag::Strikethrough) => {
-                inline_openers.push(Some(range.start..range.start + 2));
+            Event::Start(Tag::Strong) => {
+                inline_openers.push(InlineMarkup {
+                    opener: Some(range.start..range.start + 2),
+                    strong: Some(range),
+                });
+            }
+            Event::Start(Tag::Strikethrough) => {
+                inline_openers.push(InlineMarkup {
+                    opener: Some(range.start..range.start + 2),
+                    strong: None,
+                });
             }
             Event::Start(Tag::Link { .. }) => {
-                inline_openers.push(
-                    source[range.start..]
+                inline_openers.push(InlineMarkup {
+                    opener: source[range.start..]
                         .starts_with('[')
                         .then_some(range.start..range.start + 1),
-                );
+                    strong: None,
+                });
             }
-            Event::Start(Tag::Image { .. }) => inline_openers.push(None),
+            Event::Start(Tag::Image { .. }) => inline_openers.push(InlineMarkup {
+                opener: None,
+                strong: None,
+            }),
             Event::End(
                 TagEnd::Emphasis
                 | TagEnd::Strong
@@ -149,11 +165,16 @@ struct PendingFix {
     line_end: usize,
 }
 
+struct InlineMarkup {
+    opener: Option<Range<usize>>,
+    strong: Option<Range<usize>>,
+}
+
 fn offer_pending_fix(
     pending: &mut Option<PendingFix>,
     at: usize,
     text: &str,
-    inline_openers: &[Option<Range<usize>>],
+    inline_openers: &[InlineMarkup],
     diagnostics: &mut [Diagnostic],
 ) {
     let Some(fix) = pending else {
@@ -162,7 +183,7 @@ fn offer_pending_fix(
     if at >= fix.line_end {
         *pending = None;
     } else if inline_openers.len() >= fix.depth
-        && inline_openers.iter().all(Option::is_some)
+        && inline_openers.iter().all(|markup| markup.opener.is_some())
         && text.chars().any(char::is_alphanumeric)
     {
         diagnostics[fix.diagnostic].fix = Some(fix.range.clone());
@@ -206,7 +227,7 @@ impl LeadingText {
         source: &str,
         at: usize,
         text: &str,
-        inline_openers: &[Option<Range<usize>>],
+        inline_openers: &[InlineMarkup],
         allow_fix: bool,
     ) -> Option<(Diagnostic, Option<Range<usize>>)> {
         self.on_line(source, at);
@@ -243,6 +264,11 @@ impl LeadingText {
         if allow_fix && diagnostic.fix.is_none() && source.get(raw_label) == self.text.get(label) {
             if inline_openers.is_empty() {
                 offer_formatted_text_fix(source, &mut diagnostic);
+            } else if inline_openers.len() == 1
+                && let Some(strong) = &inline_openers[0].strong
+                && isolated_strong_label(source, strong) == Some(diagnostic.start..diagnostic.end)
+            {
+                offer_isolated_strong_fix(source, strong, &mut diagnostic);
             } else if source[diagnostic.end..at + text.len()]
                 .bytes()
                 .all(|byte| matches!(byte, b' ' | b'\t'))
@@ -254,11 +280,11 @@ impl LeadingText {
     }
 }
 
-fn is_leading_prefix(source: &str, at: usize, inline_openers: &[Option<Range<usize>>]) -> bool {
+fn is_leading_prefix(source: &str, at: usize, inline_openers: &[InlineMarkup]) -> bool {
     let line = line_start(source, at);
     let mut cursor = line;
-    for opener in inline_openers {
-        let Some(opener) = opener else {
+    for markup in inline_openers {
+        let Some(opener) = &markup.opener else {
             return false;
         };
         if opener.start < line {
@@ -275,15 +301,69 @@ fn is_leading_prefix(source: &str, at: usize, inline_openers: &[Option<Range<usi
     is_structural_prefix(&source[cursor..at])
 }
 
-pub(crate) fn same_structure(before: &str, after: &str) -> bool {
-    fn structure(source: &str) -> Vec<String> {
+fn isolated_strong_label(source: &str, strong: &Range<usize>) -> Option<Range<usize>> {
+    let marker = source.get(strong.start..strong.start + 2)?;
+    if !matches!(marker, "**" | "__")
+        || source.get(strong.end.checked_sub(2)?..strong.end)? != marker
+    {
+        return None;
+    }
+    let inner = (strong.start + 2)..(strong.end - 2);
+    let mut labels = Vec::new();
+    rules::check_line(source.get(inner.clone())?, inner.start, &mut labels, false);
+    let label = labels.first()?;
+    if source[inner.start..label.start]
+        .trim_matches([' ', '\t'])
+        .is_empty()
+        && source[label.end..inner.end]
+            .trim_matches([' ', '\t'])
+            .is_empty()
+    {
+        Some(label.start..label.end)
+    } else {
+        None
+    }
+}
+
+fn offer_isolated_strong_fix(source: &str, strong: &Range<usize>, diagnostic: &mut Diagnostic) {
+    let end = line_end(source, strong.end);
+    let rest = &source[strong.end..end];
+    let whitespace = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+    if Parser::new_ext(&rest[whitespace..], markdown_options())
+        .any(|event| matches!(event, Event::Text(text) if text.chars().any(char::is_alphanumeric)))
+    {
+        diagnostic.fix = Some(strong.start..strong.end + whitespace);
+    }
+}
+
+pub(crate) fn same_structure(before: &str, after: &str, edits: &[Range<usize>]) -> bool {
+    fn structure(source: &str, removed_strong: &[Range<usize>]) -> Vec<String> {
         let base = frontmatter_end(source);
         Parser::new_ext(&source[base..], markdown_options())
-            .filter(|event| !matches!(event, Event::Text(_)))
-            .map(|event| format!("{event:?}"))
+            .into_offset_iter()
+            .filter(|(event, range)| {
+                if matches!(event, Event::Text(_)) {
+                    return false;
+                }
+                !matches!(
+                    event,
+                    Event::Start(Tag::Strong) | Event::End(TagEnd::Strong)
+                ) || !removed_strong.contains(&((base + range.start)..(base + range.end)))
+            })
+            .map(|(event, _)| format!("{event:?}"))
             .collect()
     }
-    structure(before) == structure(after)
+
+    let removed_strong: Vec<_> = edits
+        .iter()
+        .filter_map(|edit| {
+            let deleted = before.get(edit.clone())?;
+            let markup = deleted.trim_end_matches([' ', '\t']);
+            let strong = edit.start..edit.start + markup.len();
+            isolated_strong_label(before, &strong).map(|_| strong)
+        })
+        .collect();
+    structure(before, &removed_strong) == structure(after, &[])
 }
 
 fn offer_formatted_text_fix(source: &str, diagnostic: &mut Diagnostic) {
