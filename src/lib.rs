@@ -223,8 +223,19 @@ mod tests {
     }
 
     #[test]
+    fn fixes_formatted_labels_before_inline_code() {
+        let source = "**2. `option` is enabled.**\n**2.4 `+` is visible.**\n[Step 1: `option` is available](target)\n**2. `option`**\n";
+        let expected = "**`option` is enabled.**\n**`+` is visible.**\n[`option` is available](target)\n**`option`**\n";
+        assert_eq!(
+            fix_unsafe(source, Language::Markdown).as_deref(),
+            Some(expected)
+        );
+        assert!(fix_unsafe(expected, Language::Markdown).is_none());
+    }
+
+    #[test]
     fn does_not_empty_link_labels_when_fixing() {
-        let source = "[Step 1](target)\n**1.** Overview\n";
+        let source = "[Step 1](target) `option` is available\n**1.** `option` is available\n[Step 1: ![logo](image.png)](target)\n";
         assert!(fix_unsafe(source, Language::Markdown).is_none());
     }
 

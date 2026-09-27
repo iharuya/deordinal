@@ -13,6 +13,7 @@ pub(crate) fn check(source: &str) -> Vec<Diagnostic> {
     let mut list_stack = Vec::new();
     let mut inline_openers = Vec::new();
     let mut leading_text = LeadingText::default();
+    let mut pending_fix: Option<PendingFix> = None;
     for (event, range) in Parser::new_ext(&source[base..], markdown_options()).into_offset_iter() {
         let range = (base + range.start)..(base + range.end);
         match event {
@@ -54,22 +55,52 @@ pub(crate) fn check(source: &str) -> Vec<Diagnostic> {
                 | TagEnd::Link
                 | TagEnd::Image,
             ) => {
+                if pending_fix
+                    .as_ref()
+                    .is_some_and(|fix| fix.depth == inline_openers.len())
+                {
+                    pending_fix = None;
+                }
                 inline_openers.pop();
             }
             Event::Text(_) if table_depth == 0 && code_depth == 0 => {
                 for (offset, line) in physical_lines(&source[range.clone()]) {
-                    if let Some(diagnostic) = leading_text.scan(
+                    let at = range.start + offset;
+                    offer_pending_fix(
+                        &mut pending_fix,
+                        at,
+                        line,
+                        &inline_openers,
+                        &mut diagnostics,
+                    );
+                    if let Some((diagnostic, candidate)) = leading_text.scan(
                         source,
-                        range.start + offset,
+                        at,
                         line,
                         &inline_openers,
                         !list_stack.contains(&true),
                     ) {
+                        pending_fix = candidate.map(|range| PendingFix {
+                            diagnostic: diagnostics.len(),
+                            range,
+                            depth: inline_openers.len(),
+                            line_end: line_end(source, at),
+                        });
                         diagnostics.push(diagnostic);
                     }
                 }
             }
-            Event::Code(_) => leading_text.block(source, range.start),
+            Event::Code(text) => {
+                offer_pending_fix(
+                    &mut pending_fix,
+                    range.start,
+                    &text,
+                    &inline_openers,
+                    &mut diagnostics,
+                );
+                leading_text.block(source, range.start);
+            }
+            Event::SoftBreak | Event::HardBreak => pending_fix = None,
             Event::Html(_) | Event::InlineHtml(_) => {
                 leading_text.block(source, range.start);
                 let line_start = line_start(source, range.start);
@@ -111,6 +142,34 @@ struct TextFragment {
     source: Range<usize>,
 }
 
+struct PendingFix {
+    diagnostic: usize,
+    range: Range<usize>,
+    depth: usize,
+    line_end: usize,
+}
+
+fn offer_pending_fix(
+    pending: &mut Option<PendingFix>,
+    at: usize,
+    text: &str,
+    inline_openers: &[Option<Range<usize>>],
+    diagnostics: &mut [Diagnostic],
+) {
+    let Some(fix) = pending else {
+        return;
+    };
+    if at >= fix.line_end {
+        *pending = None;
+    } else if inline_openers.len() >= fix.depth
+        && inline_openers.iter().all(Option::is_some)
+        && text.chars().any(char::is_alphanumeric)
+    {
+        diagnostics[fix.diagnostic].fix = Some(fix.range.clone());
+        *pending = None;
+    }
+}
+
 impl LeadingText {
     fn on_line(&mut self, source: &str, at: usize) {
         let line = line_start(source, at);
@@ -149,7 +208,7 @@ impl LeadingText {
         text: &str,
         inline_openers: &[Option<Range<usize>>],
         allow_fix: bool,
-    ) -> Option<Diagnostic> {
+    ) -> Option<(Diagnostic, Option<Range<usize>>)> {
         self.on_line(source, at);
         if self.blocked || self.reported || text.is_empty() {
             return None;
@@ -180,14 +239,18 @@ impl LeadingText {
         }
         diagnostic.start = raw_label.start;
         diagnostic.end = raw_label.end;
-        if allow_fix
-            && inline_openers.is_empty()
-            && diagnostic.fix.is_none()
-            && source.get(raw_label) == self.text.get(label)
-        {
-            offer_formatted_text_fix(source, &mut diagnostic);
+        let mut pending_fix = None;
+        if allow_fix && diagnostic.fix.is_none() && source.get(raw_label) == self.text.get(label) {
+            if inline_openers.is_empty() {
+                offer_formatted_text_fix(source, &mut diagnostic);
+            } else if source[diagnostic.end..at + text.len()]
+                .bytes()
+                .all(|byte| matches!(byte, b' ' | b'\t'))
+            {
+                pending_fix = Some(diagnostic.start..at + text.len());
+            }
         }
-        Some(diagnostic)
+        Some((diagnostic, pending_fix))
     }
 }
 
