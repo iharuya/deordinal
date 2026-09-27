@@ -41,7 +41,7 @@ async function run() {
     return;
   }
 
-  const deadline = Date.now() + 5 * 60_000;
+  const deadline = Date.now() + 15 * 60_000;
   while (true) {
     try {
       const results = await Promise.all(Object.entries(registries).map(async ([name, url]) => [name, await check(name, url)]));

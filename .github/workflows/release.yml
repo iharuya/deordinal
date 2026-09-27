@@ -87,7 +87,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: pnpm publish "$RUNNER_TEMP/npm-package/deordinal-$VERSION.tgz" --access public --provenance --no-git-checks
       - shell: bash
-        timeout-minutes: 7
+        timeout-minutes: 17
         env:
           VERSION: ${{ inputs.version }}
         run: node npm/scripts/release-registry.cjs visible "$VERSION" "$RUNNER_TEMP/npm-package/deordinal-$VERSION.tgz"
