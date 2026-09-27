@@ -273,6 +273,20 @@ mod tests {
     }
 
     #[test]
+    fn fixes_multiline_javascript_and_typescript_block_comments() {
+        let source = "const value = `// 1. literal`; /* 2. first\n 3. next\n * 4. last */\n";
+        let expected = "const value = `// 1. literal`; /* first\n next\n * last */\n";
+        for language in [Language::JavaScript, Language::TypeScript] {
+            assert_eq!(
+                fix_unsafe(source, language).as_deref(),
+                Some(expected),
+                "{language:?}"
+            );
+            assert!(fix_unsafe(expected, language).is_none(), "{language:?}");
+        }
+    }
+
+    #[test]
     fn unicode_column_and_crlf() {
         let text = "あ🐱: Step 1\r\n# Phase A\n";
         let index = LineIndex::new(text);
