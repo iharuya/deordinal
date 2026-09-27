@@ -69,13 +69,13 @@ jobs:
       - uses: actions/download-artifact@v7
         with:
           name: npm-package
-          path: npm-package
+          path: ${{ runner.temp }}/npm-package
       - shell: bash
         env:
           VERSION: ${{ inputs.version }}
         run: |
           node npm/scripts/check-release-ref.cjs "$VERSION"
-          (cd npm-package && sha256sum -c "deordinal-$VERSION.tgz.sha256")
+          (cd "$RUNNER_TEMP/npm-package" && sha256sum -c "deordinal-$VERSION.tgz.sha256")
           node npm/scripts/release-registry.cjs absent "$VERSION"
       - uses: rust-lang/crates-io-auth-action@v1
         id: crates-auth
@@ -85,12 +85,12 @@ jobs:
       - shell: bash
         env:
           VERSION: ${{ inputs.version }}
-        run: pnpm publish "npm-package/deordinal-$VERSION.tgz" --access public --provenance --no-git-checks
+        run: pnpm publish "$RUNNER_TEMP/npm-package/deordinal-$VERSION.tgz" --access public --provenance --no-git-checks
       - shell: bash
         timeout-minutes: 7
         env:
           VERSION: ${{ inputs.version }}
-        run: node npm/scripts/release-registry.cjs visible "$VERSION" "npm-package/deordinal-$VERSION.tgz"
+        run: node npm/scripts/release-registry.cjs visible "$VERSION" "$RUNNER_TEMP/npm-package/deordinal-$VERSION.tgz"
 
   github-release:
     needs: publish
