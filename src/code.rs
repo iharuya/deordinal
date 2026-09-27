@@ -124,7 +124,7 @@ fn docstring(body: Node<'_>, source: &str, diagnostics: &mut Vec<Diagnostic>) {
     };
     let start = string.start_byte() + prefix_len + quote.len();
     for (offset, line) in physical_lines(content) {
-        rules::check_bold_line(line, start + offset, diagnostics, false);
+        rules::check_bold_line(line, start + offset, diagnostics, true);
     }
 }
 
@@ -221,12 +221,13 @@ mod tests {
     #[test]
     fn bold_labels_in_python_comments_and_docstrings() {
         let source = "# **1.** Ready\n\"\"\"**2.** Details\"\"\"\n";
-        let expected = "# Ready\n\"\"\"**2.** Details\"\"\"\n";
+        let expected = "# Ready\n\"\"\"Details\"\"\"\n";
         assert_eq!(check(source, Language::Python).len(), 2);
         assert_eq!(
             fix_unsafe(source, Language::Python).as_deref(),
             Some(expected)
         );
+        assert!(fix_unsafe(expected, Language::Python).is_none());
     }
 
     #[test]

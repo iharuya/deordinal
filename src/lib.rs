@@ -311,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn fixes_only_comments_not_strings_or_docstrings() {
+    fn fixes_only_javascript_and_typescript_comments_not_strings() {
         for language in [
             Language::JavaScript,
             Language::Jsx,
@@ -327,12 +327,19 @@ mod tests {
             );
             assert!(fix_unsafe(expected, language).is_none());
         }
-        let python = "\"\"\"Step 1: docstring\"\"\"\n# ① Prepare\nvalue = '1. ordinary'\n";
-        let expected = "\"\"\"Step 1: docstring\"\"\"\n# Prepare\nvalue = '1. ordinary'\n";
+    }
+
+    #[test]
+    fn fixes_python_docstrings_and_comments_but_not_other_strings() {
+        let source = "\"\"\"Step 1: module\r\n  2. details\r\n  Phase A\r\n\"\"\"\r\n# ① Prepare\r\nvalue = '1. ordinary'\r\nclass Thing:\r\n    # preface\r\n    u'''(1) class'''\r\n    def run(self):\r\n        (\"Step 2: method\")\r\n        return '3. ordinary'\r\n    async def fetch(self):\r\n        r\"\"\"Phase B: async\r\n        4. next\"\"\"\r\n";
+        let expected = "\"\"\"module\r\n  details\r\n  Phase A\r\n\"\"\"\r\n# Prepare\r\nvalue = '1. ordinary'\r\nclass Thing:\r\n    # preface\r\n    u'''class'''\r\n    def run(self):\r\n        (\"method\")\r\n        return '3. ordinary'\r\n    async def fetch(self):\r\n        r\"\"\"async\r\n        next\"\"\"\r\n";
+        assert_eq!(check(source, Language::Python).len(), 8);
         assert_eq!(
-            fix_unsafe(python, Language::Python).as_deref(),
+            fix_unsafe(source, Language::Python).as_deref(),
             Some(expected)
         );
+        assert_eq!(check(expected, Language::Python).len(), 1);
+        assert!(fix_unsafe(expected, Language::Python).is_none());
     }
 
     #[test]
