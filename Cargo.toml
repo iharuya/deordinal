@@ -1,6 +1,6 @@
 [package]
 name = "deordinal"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2024"
 description = "Detect and remove ordering labels in Markdown, HTML comments, and code comments."
 license = "MIT"
