@@ -1,0 +1,45 @@
+deordinal — removing unnecessary ordering
+
+LLMs often add labels such as "Step 1" that become stale when text changes.
+deordinal warns about leading ordering labels and numbered Markdown lists; it
+does not decide whether the ordering is necessary. References within sentences
+and numbers with units, years, or versions are generally not flagged.
+
+Rules
+
+ordered-list: Numbered Markdown lists, reported once per list.
+prefix: Leading labels such as "1. Overview", "(1) Overview", and "① Overview".
+keyword-prefix: Leading labels such as "Step 1" and "Phase A".
+
+Resolving diagnostics
+
+Remove unnecessary labels and rerun the check. Ignore only in rare cases where
+the order is essential to correctness or safety. Do not suppress a diagnostic
+just to make the check pass. In Markdown, keep the ignored range as narrow as
+possible and state the specific reason:
+
+<!-- deordinal-ignore-start: These actions must be done in this order. -->
+1. Stop the service
+2. Create a backup
+<!-- deordinal-ignore-end -->
+
+Only if ordering is essential throughout a Markdown file, put this at its
+start:
+
+<!-- deordinal-ignore-file: This is an ordered operations manual. -->
+
+Ignore directives are not supported in HTML or programming-language comments.
+Rewrite those comments; do not exclude a file merely to silence diagnostics.
+
+Autofix
+
+`deordinal check PATH --write --unsafe` applies supported fixes. Both flags are
+required. Review the diff: headings, docstrings, and other text may change
+meaning. Numbered Markdown lists and some labels require manual resolution.
+
+Configuration and exit status
+
+`deordinal init` creates deordinal.jsonc. Configure included paths with
+`includes` globs and exclude them with `!`; run `deordinal check --help` for
+usage. Exit status 0 means no diagnostics, 1 means warnings, and 2 means errors
+(such as invalid ignore directives, configuration, or unreadable files).
