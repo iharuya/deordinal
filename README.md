@@ -19,6 +19,7 @@ cd your-project
 deordinal init                 # create a configuration file
 deordinal check                # recursively check the current directory
 deordinal check README.md src  # check the specified files and directories
+deordinal docs                 # explain rules, suppressions, and resolution
 ```
 
 Autofix is experimental: rerun the same `check` command with `--write --unsafe` to apply supported edits.

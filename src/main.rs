@@ -14,6 +14,10 @@ use tempfile::NamedTempFile;
 mod config;
 mod report;
 use config::Config;
+
+const DOCS: &str = include_str!("../assets/docs.txt");
+const DOCS_HINT: &str =
+    "Hint: Run `deordinal docs` for rules, suppressions, and resolution guidance.";
 use report::{ErrorReport, FileReport};
 
 #[derive(Parser)]
@@ -43,6 +47,8 @@ enum Command {
         #[arg(value_name = "PATH", default_value = ".")]
         path: PathBuf,
     },
+    #[command(about = "Explain rules, suppressions, and how to resolve diagnostics")]
+    Docs,
 }
 
 fn normalize(path: &Path) -> PathBuf {
@@ -82,6 +88,10 @@ fn main() -> ExitCode {
             }
         }
         Command::Init { path } => run_init(&path),
+        Command::Docs => {
+            print!("{DOCS}");
+            ExitCode::SUCCESS
+        }
     }
 }
 
@@ -155,6 +165,7 @@ fn run_check(paths: &[PathBuf], verbose: bool, write: bool) -> ExitCode {
         Ok(config) => config,
         Err(err) => {
             eprintln!("{}: {}", err.path.display(), err.message);
+            eprintln!("{DOCS_HINT}");
             return ExitCode::from(2);
         }
     };
@@ -229,6 +240,9 @@ fn run_check(paths: &[PathBuf], verbose: bool, write: bool) -> ExitCode {
             "Hint: Re-run this check with `--write --unsafe` to apply supported fixes (review the diff)."
         );
     }
+    if warnings > 0 && errors.is_empty() {
+        println!("{DOCS_HINT}");
+    }
     if verbose {
         println!(
             "Summary: {checked_files} files, {warnings} warnings, {} errors",
@@ -244,6 +258,7 @@ fn run_check(paths: &[PathBuf], verbose: bool, write: bool) -> ExitCode {
         }
     }
     if !errors.is_empty() {
+        eprintln!("{DOCS_HINT}");
         ExitCode::from(2)
     } else if warnings > 0 {
         ExitCode::from(1)
