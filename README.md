@@ -1,5 +1,10 @@
 # deordinal
 
+[![CI](https://github.com/iharuya/deordinal/actions/workflows/checks.yml/badge.svg?branch=main)](https://github.com/iharuya/deordinal/actions/workflows/checks.yml)
+[![crates.io](https://img.shields.io/crates/v/deordinal.svg)](https://crates.io/crates/deordinal)
+[![npm](https://img.shields.io/npm/v/deordinal.svg)](https://www.npmjs.com/package/deordinal)
+[![License: MIT](https://img.shields.io/crates/l/deordinal.svg)](https://github.com/iharuya/deordinal/blob/main/LICENSE)
+
 ![Before and after: deordinal removes step numbers from JavaScript comments without changing the code](assets/what-is-this.png)
 
 **Remove the numbers. Make room for change.**
