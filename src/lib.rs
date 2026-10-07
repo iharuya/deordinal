@@ -21,13 +21,10 @@ pub struct Diagnostic {
     pub(crate) fix: Option<Fix>,
 }
 
-/// Unsafe edits for one diagnostic, applied all together or not at all.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Fix {
     Remove(Range<usize>),
-    /// Replaces every item marker of an ordered list with `-`.
     Bullets(Vec<Range<usize>>),
-    /// Replaces a label that starts a line of prose with `- `, making the line a list item.
     BulletItem(Range<usize>),
 }
 
@@ -123,8 +120,8 @@ pub fn fix_unsafe(source: &str, language: Language) -> Option<String> {
     changed.then_some(result)
 }
 
-/// Turning prose into list items changes the document structure, so those fixes wait until no
-/// structure-preserving fix applies and are verified with relaxed rules.
+/// `BulletItem` fixes are verified with relaxed structure rules, so they never share a batch with
+/// fixes that must keep the structure.
 fn fix_once(source: &str, language: Language) -> Option<String> {
     let diagnostics = check(source, language);
     if diagnostics.iter().any(|d| d.severity == Severity::Error) {
@@ -158,7 +155,6 @@ fn apply_checked(source: &str, language: Language, fixes: Vec<Fix>) -> Option<St
     (result != source).then_some(result)
 }
 
-/// Returns fixes whose spans do not overlap, ordered from the end of the source.
 fn select_disjoint(source: &str, fixes: Vec<Fix>) -> Vec<Fix> {
     let mut fixes: Vec<_> = fixes
         .into_iter()

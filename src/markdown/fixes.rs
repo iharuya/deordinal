@@ -45,10 +45,6 @@ pub(super) fn offer_isolated_strong_fix(
     }
 }
 
-/// Compares the syntax that fixes must keep while prose text changes. A bold span may disappear
-/// with the label it contains, and ordered lists may become bullet lists. `BulletItem` fixes turn
-/// prose lines into list items, so paragraphs and list items may be rearranged around them as in
-/// the plain text, but no other list may appear, disappear, or merge.
 pub(crate) fn same_structure(before: &str, after: &str, fixes: &[Fix]) -> bool {
     if fixes.iter().any(|fix| matches!(fix, Fix::BulletItem(_))) {
         return prose_structure(before, &[]) == prose_structure(after, &bullet_items_after(fixes));
@@ -82,6 +78,8 @@ fn structure(source: &str, removed_strong: &[Range<usize>]) -> Vec<String> {
         .collect()
 }
 
+/// Paragraphs and list items may be rearranged as the plain text reads, but no list other than
+/// those started by new items may appear, disappear, or merge.
 fn prose_structure(source: &str, new_items: &[usize]) -> Vec<String> {
     syntax_events(source)
         .filter_map(|(event, range)| match event {
@@ -96,7 +94,7 @@ fn prose_structure(source: &str, new_items: &[usize]) -> Vec<String> {
         .collect()
 }
 
-/// Events other than prose text. Code block text is kept because no fix may change code.
+/// Keeps code block text because a narrower list marker can add indentation to code in the item.
 fn syntax_events(source: &str) -> impl Iterator<Item = (Event<'_>, Range<usize>)> {
     let base = frontmatter_end(source);
     let mut in_code_block = false;

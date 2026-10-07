@@ -63,16 +63,17 @@ impl<'a> Scanner<'a> {
             }
             Event::Start(Tag::Item) => {
                 if let Some(Some(list)) = self.list_stack.last_mut() {
-                    match (&mut list.markers, list_marker(self.source, range.start)) {
-                        (Some(markers), Some(marker)) => markers.push(marker),
-                        _ => list.markers = None,
+                    match list_marker(self.source, range.start) {
+                        Some(marker) => list.markers.push(marker),
+                        None => list.missing_marker = true,
                     }
                 }
             }
             Event::End(TagEnd::List(_)) => {
                 if let Some(Some(OrderedList {
                     diagnostic: Some(index),
-                    markers: Some(markers),
+                    markers,
+                    missing_marker: false,
                 })) = self.list_stack.pop()
                 {
                     self.diagnostics[index].fix = Some(Fix::Bullets(markers));
@@ -153,7 +154,8 @@ impl<'a> Scanner<'a> {
         };
         OrderedList {
             diagnostic,
-            markers: Some(Vec::new()),
+            markers: Vec::new(),
+            missing_marker: false,
         }
     }
 
@@ -180,7 +182,6 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    /// A plain label at the start of a prose line becomes a list item instead of being removed.
     fn offer_bullet_item(&self, diagnostic: &mut Diagnostic) {
         if diagnostic.rule == rules::PREFIX
             && !self.heading
@@ -250,8 +251,8 @@ impl<'a> Scanner<'a> {
 
 struct OrderedList {
     diagnostic: Option<usize>,
-    /// `None` when an item marker cannot be located, which makes the list unfixable.
-    markers: Option<Vec<Range<usize>>>,
+    markers: Vec<Range<usize>>,
+    missing_marker: bool,
 }
 
 struct PendingFix {
