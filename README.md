@@ -28,6 +28,7 @@ deordinal docs                 # explain rules, suppressions, and resolution
 ```
 
 Autofix is experimental: rerun the same `check` command with `--write --unsafe` to apply supported edits.
+In Markdown, numbered lists and prose lines starting with labels such as `a.` or `(1)` become `-` bullet lists.
 Review the diff before committing; unsupported diagnostics remain unchanged.
 
 Supported files: `.md`, `.html` / `.htm` (HTML comments only), `.js` / `.jsx` / `.mjs` / `.cjs`, `.ts` / `.tsx` / `.mts` / `.cts`, `.py` / `.pyi`

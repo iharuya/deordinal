@@ -2,10 +2,10 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::Diagnostic;
+use crate::{Diagnostic, Fix};
 
 const ORDERED_LIST: &str = "ordered-list";
-const PREFIX: &str = "prefix";
+pub(crate) const PREFIX: &str = "prefix";
 const KEYWORD_PREFIX: &str = "keyword-prefix";
 
 const KEYWORDS: &[&str] = &[
@@ -73,7 +73,7 @@ pub(crate) fn check_line(
         let rest = &text[len..];
         let whitespace = rest.len() - rest.trim_start_matches([' ', '\t']).len();
         if allow_fix && rest[whitespace..].chars().any(char::is_alphanumeric) {
-            diagnostic.fix = Some(start..start + len + whitespace);
+            diagnostic.fix = Some(Fix::Remove(start..start + len + whitespace));
         }
         diagnostics.push(diagnostic);
     }
@@ -119,7 +119,7 @@ pub(crate) fn check_bold_line(
         let rest = &text[end + marker.len()..];
         let whitespace = rest.len() - rest.trim_start_matches([' ', '\t']).len();
         if only_label && rest[whitespace..].chars().any(char::is_alphanumeric) {
-            diagnostic.fix = Some(at..at + end + marker.len() + whitespace);
+            diagnostic.fix = Some(Fix::Remove(at..at + end + marker.len() + whitespace));
         }
     }
     diagnostics.push(diagnostic);

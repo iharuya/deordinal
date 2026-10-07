@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::{Diagnostic, rules};
+use crate::{Diagnostic, Fix, rules};
 
 use super::{
     fixes::{isolated_strong_label, offer_formatted_text_fix, offer_isolated_strong_fix},
@@ -87,10 +87,10 @@ impl LeadingText {
         self.reported = true;
         let label = diagnostic.start..diagnostic.end;
         let raw_label = self.source_range(label.clone());
-        if let Some(fix) = diagnostic.fix.take() {
+        if let Some(Fix::Remove(fix)) = diagnostic.fix.take() {
             let raw_fix = self.source_range(fix.clone());
             if source.get(raw_fix.clone()) == self.text.get(fix) {
-                diagnostic.fix = Some(raw_fix);
+                diagnostic.fix = Some(Fix::Remove(raw_fix));
             }
         }
         diagnostic.start = raw_label.start;

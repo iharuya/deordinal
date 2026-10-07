@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 
-use crate::{Diagnostic, physical_lines, rules};
+use crate::{Diagnostic, Fix, physical_lines, rules};
 
 use super::{
     directives::parse_directives,
@@ -26,7 +26,8 @@ struct Scanner<'a> {
     directives: Vec<Range<usize>>,
     table_depth: usize,
     code_depth: usize,
-    list_stack: Vec<bool>,
+    heading: bool,
+    list_stack: Vec<Option<OrderedList>>,
     inline_openers: Vec<InlineMarkup>,
     leading_text: LeadingText,
     pending_fix: Option<PendingFix>,
@@ -40,6 +41,7 @@ impl<'a> Scanner<'a> {
             directives: Vec::new(),
             table_depth: 0,
             code_depth: 0,
+            heading: false,
             list_stack: Vec::new(),
             inline_openers: Vec::new(),
             leading_text: LeadingText::default(),
@@ -53,19 +55,29 @@ impl<'a> Scanner<'a> {
             Event::End(TagEnd::Table) => self.table_depth -= 1,
             Event::Start(Tag::CodeBlock(_)) => self.code_depth += 1,
             Event::End(TagEnd::CodeBlock) => self.code_depth -= 1,
+            Event::Start(Tag::Heading { .. }) => self.heading = true,
+            Event::End(TagEnd::Heading(_)) => self.heading = false,
             Event::Start(Tag::List(number)) => {
-                if number.is_some()
-                    && self.table_depth == 0
-                    && self.code_depth == 0
-                    && let Some(marker) = list_marker(self.source, range.start)
-                {
-                    self.diagnostics
-                        .push(rules::ordered_list(marker.start, marker.end));
+                let list = number.map(|_| self.ordered_list(range.start));
+                self.list_stack.push(list);
+            }
+            Event::Start(Tag::Item) => {
+                if let Some(Some(list)) = self.list_stack.last_mut() {
+                    match list_marker(self.source, range.start) {
+                        Some(marker) => list.markers.push(marker),
+                        None => list.missing_marker = true,
+                    }
                 }
-                self.list_stack.push(number.is_some());
             }
             Event::End(TagEnd::List(_)) => {
-                self.list_stack.pop();
+                if let Some(Some(OrderedList {
+                    diagnostic: Some(index),
+                    markers,
+                    missing_marker: false,
+                })) = self.list_stack.pop()
+                {
+                    self.diagnostics[index].fix = Some(Fix::Bullets(markers));
+                }
             }
             Event::Start(Tag::Emphasis) => {
                 self.inline_openers.push(InlineMarkup {
@@ -129,17 +141,36 @@ impl<'a> Scanner<'a> {
         }
     }
 
+    fn ordered_list(&mut self, start: usize) -> OrderedList {
+        let diagnostic = if self.table_depth == 0
+            && self.code_depth == 0
+            && let Some(marker) = list_marker(self.source, start)
+        {
+            self.diagnostics
+                .push(rules::ordered_list(marker.start, marker.end));
+            Some(self.diagnostics.len() - 1)
+        } else {
+            None
+        };
+        OrderedList {
+            diagnostic,
+            markers: Vec::new(),
+            missing_marker: false,
+        }
+    }
+
     fn scan_text(&mut self, range: Range<usize>) {
         for (offset, line) in physical_lines(&self.source[range.clone()]) {
             let at = range.start + offset;
             self.offer_pending_fix(at, line);
-            if let Some((diagnostic, candidate)) = self.leading_text.scan(
+            if let Some((mut diagnostic, candidate)) = self.leading_text.scan(
                 self.source,
                 at,
                 line,
                 &self.inline_openers,
-                !self.list_stack.contains(&true),
+                self.list_stack.iter().all(Option::is_none),
             ) {
+                self.offer_bullet_item(&mut diagnostic);
                 self.pending_fix = candidate.map(|range| PendingFix {
                     diagnostic: self.diagnostics.len(),
                     range,
@@ -148,6 +179,20 @@ impl<'a> Scanner<'a> {
                 });
                 self.diagnostics.push(diagnostic);
             }
+        }
+    }
+
+    fn offer_bullet_item(&self, diagnostic: &mut Diagnostic) {
+        if diagnostic.rule == rules::PREFIX
+            && !self.heading
+            && self.inline_openers.is_empty()
+            && let Some(Fix::Remove(range)) = &diagnostic.fix
+            && self.source[line_start(self.source, range.start)..range.start]
+                .trim_start_matches('\u{feff}')
+                .trim_start_matches([' ', '\t', '>'])
+                .is_empty()
+        {
+            diagnostic.fix = Some(Fix::BulletItem(range.clone()));
         }
     }
 
@@ -164,7 +209,7 @@ impl<'a> Scanner<'a> {
                 .all(|markup| markup.opener.is_some())
             && text.chars().any(char::is_alphanumeric)
         {
-            self.diagnostics[fix.diagnostic].fix = Some(fix.range.clone());
+            self.diagnostics[fix.diagnostic].fix = Some(Fix::Remove(fix.range.clone()));
             self.pending_fix = None;
         }
     }
@@ -187,9 +232,27 @@ impl<'a> Scanner<'a> {
         self.diagnostics.retain(|diag| {
             !file_ignored && !ranges.iter().any(|range| range.contains(&diag.start))
         });
+        for diagnostic in &mut self.diagnostics {
+            let edits_ignored_text = diagnostic.fix.as_ref().is_some_and(|fix| {
+                fix.ranges().iter().any(|edit| {
+                    ranges
+                        .iter()
+                        .any(|range| edit.start < range.end && range.start < edit.end)
+                })
+            });
+            if edits_ignored_text {
+                diagnostic.fix = None;
+            }
+        }
         self.diagnostics.extend(errors);
         self.diagnostics
     }
+}
+
+struct OrderedList {
+    diagnostic: Option<usize>,
+    markers: Vec<Range<usize>>,
+    missing_marker: bool,
 }
 
 struct PendingFix {

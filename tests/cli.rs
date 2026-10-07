@@ -126,7 +126,7 @@ fn fix_hint_requires_an_applicable_edit() {
     let dir = tempdir().unwrap();
     fs::write(
         dir.path().join("unsupported.md"),
-        "# Step 1\n# Phase A\n1. first\n2. second\n",
+        "# Step 1\n# Phase A\n- bullet\n1. would merge into the bullet list\n",
     )
     .unwrap();
     let unsupported = run(dir.path(), &["check", "unsupported.md"]);
@@ -542,13 +542,17 @@ fn write_rechecks_files_and_reports_only_remaining_warnings() {
     let dir = tempdir().unwrap();
     let markdown = dir.path().join("guide.md");
     let code = dir.path().join("main.js");
-    fs::write(&markdown, "# Step 1: Setup\n1. first\n2. second\n").unwrap();
+    fs::write(
+        &markdown,
+        "# Step 1: Setup\n# Phase A\n1. first\n2. second\n",
+    )
+    .unwrap();
     fs::write(&code, "// 1. init\n// someCode()\n// 2. run\n").unwrap();
     let output = run(dir.path(), &["check", "--write", "--unsafe", "--verbose"]);
     assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
     assert_eq!(
         fs::read_to_string(&markdown).unwrap(),
-        "# Setup\n1. first\n2. second\n"
+        "# Setup\n# Phase A\n- first\n- second\n"
     );
     assert_eq!(
         fs::read_to_string(&code).unwrap(),
@@ -557,11 +561,11 @@ fn write_rechecks_files_and_reports_only_remaining_warnings() {
     assert_eq!(stdout(&output).matches("✖ ").count(), 1);
     assert_eq!(stdout(&output).matches("Applied fixes").count(), 2);
     assert!(!stdout(&output).contains("Hint: Re-run"));
-    assert!(stdout(&output).contains("guide.md:2:1: ordered-list"));
+    assert!(stdout(&output).contains("guide.md:2:3: keyword-prefix"));
     assert_summary(stdout(&output).lines().last().unwrap(), 2, 1, 0);
     let again = run(dir.path(), &["check", "--write", "--unsafe"]);
     assert_eq!(again.status.code(), Some(1));
-    assert!(stdout(&again).contains("guide.md:2:1: ordered-list"));
+    assert!(stdout(&again).contains("guide.md:2:3: keyword-prefix"));
     assert!(!stdout(&again).contains("Applied fixes"));
 }
 

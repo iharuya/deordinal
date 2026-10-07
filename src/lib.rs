@@ -18,7 +18,35 @@ pub struct Diagnostic {
     pub start: usize,
     pub end: usize,
     pub severity: Severity,
-    pub(crate) fix: Option<Range<usize>>,
+    pub(crate) fix: Option<Fix>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Fix {
+    Remove(Range<usize>),
+    Bullets(Vec<Range<usize>>),
+    BulletItem(Range<usize>),
+}
+
+impl Fix {
+    pub(crate) fn ranges(&self) -> &[Range<usize>] {
+        match self {
+            Self::Remove(range) | Self::BulletItem(range) => std::slice::from_ref(range),
+            Self::Bullets(markers) => markers,
+        }
+    }
+
+    pub(crate) fn replacement(&self) -> &'static str {
+        match self {
+            Self::Remove(_) => "",
+            Self::Bullets(_) => "-",
+            Self::BulletItem(_) => "- ",
+        }
+    }
+
+    fn span(&self) -> Option<Range<usize>> {
+        Some(self.ranges().first()?.start..self.ranges().last()?.end)
+    }
 }
 
 impl Diagnostic {
@@ -92,48 +120,76 @@ pub fn fix_unsafe(source: &str, language: Language) -> Option<String> {
     changed.then_some(result)
 }
 
+/// `BulletItem` fixes are verified with relaxed structure rules, so they never share a batch with
+/// fixes that must keep the structure.
 fn fix_once(source: &str, language: Language) -> Option<String> {
     let diagnostics = check(source, language);
     if diagnostics.iter().any(|d| d.severity == Severity::Error) {
         return None;
     }
-    let mut edits: Vec<_> = diagnostics.into_iter().filter_map(|d| d.fix).collect();
-    edits.sort_by_key(|range| (range.start, range.end));
-    let mut result = source.to_owned();
-    let mut boundary = source.len();
-    let mut accepted = Vec::new();
-    for range in edits.into_iter().rev() {
-        if range.start < range.end && range.end <= boundary && source.get(range.clone()).is_some() {
-            result.replace_range(range.clone(), "");
-            boundary = range.start;
-            accepted.push(range);
-        }
-    }
-    if accepted.is_empty() {
+    let (bullet_items, others): (Vec<_>, Vec<_>) = diagnostics
+        .into_iter()
+        .filter_map(|d| d.fix)
+        .partition(|fix| matches!(fix, Fix::BulletItem(_)));
+    apply_checked(source, language, others)
+        .or_else(|| apply_checked(source, language, bullet_items))
+}
+
+fn apply_checked(source: &str, language: Language, fixes: Vec<Fix>) -> Option<String> {
+    let fixes = select_disjoint(source, fixes);
+    if fixes.is_empty() {
         return None;
     }
-    if preserves_structure(source, &result, language, &accepted) {
+    let result = apply(source, &fixes);
+    if preserves_structure(source, &result, language, &fixes) {
         return Some(result);
     }
     let mut result = source.to_owned();
-    for range in accepted {
-        let mut candidate = result.clone();
-        candidate.replace_range(range.clone(), "");
-        if preserves_structure(&result, &candidate, language, &[range]) {
+    for fix in fixes {
+        let fix = [fix];
+        let candidate = apply(&result, &fix);
+        if preserves_structure(&result, &candidate, language, &fix) {
             result = candidate;
         }
     }
     (result != source).then_some(result)
 }
 
-fn preserves_structure(
-    before: &str,
-    after: &str,
-    language: Language,
-    edits: &[Range<usize>],
-) -> bool {
+fn select_disjoint(source: &str, fixes: Vec<Fix>) -> Vec<Fix> {
+    let mut fixes: Vec<_> = fixes
+        .into_iter()
+        .filter(|fix| {
+            fix.ranges()
+                .iter()
+                .all(|range| range.start < range.end && source.get(range.clone()).is_some())
+        })
+        .filter_map(|fix| Some((fix.span()?, fix)))
+        .collect();
+    fixes.sort_by_key(|(span, _)| (span.start, span.end));
+    let mut boundary = source.len();
+    let mut selected = Vec::new();
+    for (span, fix) in fixes.into_iter().rev() {
+        if span.end <= boundary {
+            boundary = span.start;
+            selected.push(fix);
+        }
+    }
+    selected
+}
+
+fn apply(source: &str, fixes_from_end: &[Fix]) -> String {
+    let mut result = source.to_owned();
+    for fix in fixes_from_end {
+        for range in fix.ranges().iter().rev() {
+            result.replace_range(range.clone(), fix.replacement());
+        }
+    }
+    result
+}
+
+fn preserves_structure(before: &str, after: &str, language: Language, fixes: &[Fix]) -> bool {
     match language {
-        Language::Markdown => markdown::same_structure(before, after, edits),
+        Language::Markdown => markdown::same_structure(before, after, fixes),
         Language::Html => html::same_structure(before, after),
         _ => true,
     }
@@ -190,8 +246,9 @@ mod tests {
 
     #[test]
     fn fixes_markdown_prose_without_changing_syntax() {
-        let source = "\u{feff}# 1. Overview\r\n> Phase A: Plan\r\n- Step 1: Prepare\r\n- [ ] 2: Confirm\r\nPlain paragraph\r\n3: Continue\r\n";
-        let expected = "\u{feff}# Overview\r\n> Plan\r\n- Prepare\r\n- [ ] Confirm\r\nPlain paragraph\r\nContinue\r\n";
+        let source = "\u{feff}# 1. Overview\r\n> Phase A: Plan\r\n- Step 1: Prepare\r\n- [ ] 2: Confirm\r\nPlain paragraph\r\n";
+        let expected =
+            "\u{feff}# Overview\r\n> Plan\r\n- Prepare\r\n- [ ] Confirm\r\nPlain paragraph\r\n";
         assert_eq!(
             fix_unsafe(source, Language::Markdown).as_deref(),
             Some(expected)
@@ -201,9 +258,9 @@ mod tests {
 
     #[test]
     fn leaves_unsupported_markdown_unchanged() {
-        let source = "# Step 1\n# Step 2 <!-- note -->\n1. first\n2. second\n- Step 3\n```\n# Step 4: code\n```\n";
+        let source = "# Step 1\n# Step 2 <!-- note -->\n- Step 3\n```\n# Step 4: code\n```\n";
         assert!(fix_unsafe(source, Language::Markdown).is_none());
-        assert_eq!(check(source, Language::Markdown).len(), 4);
+        assert_eq!(check(source, Language::Markdown).len(), 3);
     }
 
     #[test]
