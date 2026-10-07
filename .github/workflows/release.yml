@@ -19,13 +19,14 @@ concurrency:
 jobs:
   preflight:
     runs-on: ubuntu-26.04
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: '24'
       - shell: bash
@@ -37,7 +38,7 @@ jobs:
           test -n "$NOTES" || { echo 'Release notes must not be empty' >&2; exit 1; }
           node npm/scripts/check-release-version.cjs "$VERSION"
           node npm/scripts/check-release-ref.cjs "$VERSION"
-          node npm/scripts/release-registry.cjs absent "$VERSION"
+          node npm/scripts/check-release-absent.cjs "$VERSION"
           printf 'Release candidate: %s at %s\n' "$VERSION" "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
 
   binaries:
@@ -51,22 +52,23 @@ jobs:
   publish:
     needs: [preflight, binaries]
     runs-on: ubuntu-26.04
+    timeout-minutes: 10
     environment: release
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v5
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: '24'
-      - uses: pnpm/action-setup@v5
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
         with:
           version: 12.3.4
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: npm-package
           path: ${{ runner.temp }}/npm-package
@@ -76,29 +78,41 @@ jobs:
         run: |
           node npm/scripts/check-release-ref.cjs "$VERSION"
           (cd "$RUNNER_TEMP/npm-package" && sha256sum -c "deordinal-$VERSION.tgz.sha256")
-          node npm/scripts/release-registry.cjs absent "$VERSION"
-      - uses: rust-lang/crates-io-auth-action@v1
+          node npm/scripts/check-release-absent.cjs "$VERSION"
+      # Staging is reversible until a maintainer approves it, so it runs before the irreversible crates.io publish.
+      - shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          tarball="$RUNNER_TEMP/npm-package/deordinal-$VERSION.tgz"
+          pnpm stage publish "$tarball" --access public --provenance --no-git-checks --json --loglevel=error > "$RUNNER_TEMP/npm-stage.json"
+          stage_id=$(node -p 'require(process.argv[1]).deordinal.stageId' "$RUNNER_TEMP/npm-stage.json")
+          [[ "$stage_id" =~ ^[0-9a-f-]{36}$ ]] || { echo "Unexpected stage id: $stage_id" >&2; exit 1; }
+          shasum=$(sha1sum "$tarball" | cut -d ' ' -f 1)
+          cat >> "$GITHUB_STEP_SUMMARY" <<SUMMARY
+          ## npm approval
+
+          Staged deordinal@$VERSION as \`$stage_id\`. Confirm the staged shasum is \`$shasum\`, then approve it with 2FA using the commands below or on [npmjs.com](https://www.npmjs.com/package/deordinal/access).
+
+          \`\`\`sh
+          pnpm stage view $stage_id
+          pnpm stage approve $stage_id
+          \`\`\`
+          SUMMARY
+      - uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
         id: crates-auth
       - run: cargo publish --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
-      - shell: bash
-        env:
-          VERSION: ${{ inputs.version }}
-        run: pnpm publish "$RUNNER_TEMP/npm-package/deordinal-$VERSION.tgz" --access public --provenance --no-git-checks
-      - shell: bash
-        timeout-minutes: 17
-        env:
-          VERSION: ${{ inputs.version }}
-        run: node npm/scripts/release-registry.cjs visible "$VERSION" "$RUNNER_TEMP/npm-package/deordinal-$VERSION.tgz"
 
   github-release:
     needs: publish
     runs-on: ubuntu-26.04
+    timeout-minutes: 5
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
       - shell: bash
