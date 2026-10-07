@@ -34,8 +34,10 @@ Rewrite those comments; do not exclude a file merely to silence diagnostics.
 Autofix
 
 `deordinal check PATH --write --unsafe` applies supported fixes. Both flags are
-required. Review the diff: headings, docstrings, and other text may change
-meaning. Numbered Markdown lists and some labels require manual resolution.
+required. Labels are removed, except that numbered Markdown lists and prose
+lines starting with labels such as "a." or "(1)" become "-" bullet lists.
+Review the diff: headings, docstrings, and other text may change meaning. Some
+labels require manual resolution.
 
 Configuration and exit status
 

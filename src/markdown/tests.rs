@@ -1,7 +1,11 @@
-use crate::{Language, LineIndex, Severity, check};
+use crate::{Language, LineIndex, Severity, check, fix_unsafe};
 
 fn hits(source: &str) -> Vec<crate::Diagnostic> {
     check(source, Language::Markdown)
+}
+
+fn fixed(source: &str) -> Option<String> {
+    fix_unsafe(source, Language::Markdown)
 }
 
 fn line_column(source: &str, byte: usize) -> (usize, usize) {
@@ -172,4 +176,62 @@ fn inline_markup_does_not_turn_later_text_into_a_label() {
 fn inline_code_is_not_a_directive() {
     let src = "`<!-- deordinal-ignore-file: reason -->`\n# Step 1\n";
     assert_eq!(hits(src).len(), 1);
+}
+
+#[test]
+fn ordered_lists_become_bullet_lists() {
+    assert_eq!(
+        fixed("1. hello\n2. world\n").as_deref(),
+        Some("- hello\n- world\n")
+    );
+    let src = "1. first\r\n   1. nested\r\n2. second\r\n\r\n> 1) quote\r\n> 2) more\r\n\r\n10. ten\r\n11. eleven\r\n";
+    let expected = "- first\r\n   - nested\r\n- second\r\n\r\n> - quote\r\n> - more\r\n\r\n- ten\r\n- eleven\r\n";
+    assert_eq!(fixed(src).as_deref(), Some(expected));
+    assert!(hits(expected).is_empty(), "{:?}", hits(expected));
+}
+
+#[test]
+fn letter_markers_and_nested_ordered_lists_follow_the_plain_text() {
+    let src = "a. hello\nb. nice\n  1. to\n  2. meet\nc. you\n";
+    let expected = "- hello\n- nice\n  - to\n  - meet\n- you\n";
+    assert_eq!(fixed(src).as_deref(), Some(expected));
+    assert!(hits(expected).is_empty(), "{:?}", hits(expected));
+}
+
+#[test]
+fn ordinal_labels_starting_prose_lines_become_list_items() {
+    let src = "\u{feff}Intro\n(1) first\n② second\nA) third\n1: fourth\n2. fifth\n\n> 一、 quoted\n\n- item\n  a. nested\n\n> quoted\n(1) lazy\n";
+    let expected = "\u{feff}Intro\n- first\n- second\n- third\n- fourth\n- fifth\n\n> - quoted\n\n- item\n  - nested\n\n> quoted\n- lazy\n";
+    assert_eq!(fixed(src).as_deref(), Some(expected));
+}
+
+#[test]
+fn other_labels_are_still_removed() {
+    let src = "# (1) Heading\n\n(2) Setext\n---\n\n- (3) item\n\n**4.** Bold\n\n*5. emphasized*\n\nStep 1: keyword\n";
+    let expected = "# Heading\n\nSetext\n---\n\n- item\n\nBold\n\n*emphasized*\n\nkeyword\n";
+    assert_eq!(fixed(src).as_deref(), Some(expected));
+}
+
+#[test]
+fn labels_inside_ordered_lists_are_fixed_once_the_list_is_bulleted() {
+    let src = "1. Step 1: Install\n2. (2) Run\n";
+    assert_eq!(fixed(src).as_deref(), Some("- Install\n- Run\n"));
+}
+
+#[test]
+fn list_fixes_that_change_other_syntax_are_skipped() {
+    for src in [
+        "- bullet\n1. would merge into the bullet list\n",
+        "1. item\n\n       code that the narrower marker would indent\n",
+        "(1) [ ] would become a task\n",
+        "(1) 2. would become a nested list\n",
+        "1. a\n   <!-- deordinal-ignore-start: ordered -->\n2. b\n   <!-- deordinal-ignore-end -->\n",
+    ] {
+        assert!(fixed(src).is_none(), "{src}");
+        assert!(!hits(src).is_empty(), "{src}");
+    }
+    assert_eq!(
+        fixed("1. dot\n1) parenthesis\n").as_deref(),
+        Some("1. dot\n- parenthesis\n")
+    );
 }
