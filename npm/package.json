@@ -15,7 +15,8 @@
     "executableFiles": [
       "./vendor/darwin-arm64/deordinal",
       "./vendor/darwin-x64/deordinal",
-      "./vendor/linux-x64/deordinal"
+      "./vendor/linux-x64/deordinal",
+      "./vendor/linux-arm64/deordinal"
     ]
   },
   "files": [

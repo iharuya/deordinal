@@ -27,7 +27,7 @@ try {
   if (fs.readFileSync(path.join(packed, 'LICENSE'), 'utf8') !== license) {
     throw new Error('Packed LICENSE differs from root LICENSE');
   }
-  for (const target of ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64']) {
+  for (const target of ['darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64', 'win32-x64']) {
     const name = target.startsWith('win32') ? 'deordinal.exe' : 'deordinal';
     const file = path.join(packed, 'vendor', target, name);
     const metadata = fs.statSync(file, { throwIfNoEntry: false });

@@ -8,6 +8,7 @@ const targets = {
   'darwin-arm64': 'deordinal',
   'darwin-x64': 'deordinal',
   'linux-x64': 'deordinal',
+  'linux-arm64': 'deordinal',
   'win32-x64': 'deordinal.exe',
 };
 
